@@ -29,7 +29,7 @@ def _():
     import plotly.express as px
     import plotly.graph_objects as go
 
-    from extending_factor_model.backtester import run_multiple_backtests
+    from extending_factor_model.backtester import run_multiple_backtests, covariances_by_EIG, covariances_by_KL
     from extending_factor_model.plots import (
         plot_multi_nav,
         plot_multi_cumulative,
@@ -58,6 +58,8 @@ def _():
         START_DATE,
         TODAY,
         UNIVERSE_SIZE,
+        covariances_by_EIG,
+        covariances_by_KL,
         mo,
         pd,
         plot_ewma_vol,
@@ -126,22 +128,29 @@ def _(START_DATE, TODAY, mo, pd, universe, yf):
 
 
 @app.cell
+def _(covariances_by_EIG, covariances_by_KL, returns_df):
+    Sigmas = {}
+    Sigmas["EIG"] = covariances_by_EIG(returns_df)
+    Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
+    return (Sigmas,)
+
+
+@app.cell
 def _(returns_df):
     # Build multiple alpha specifications
     # Align indices
-    alphas_dict = {
-        'trail': returns_df.rolling(10).mean()
-    }
+    alphas_df = returns_df.rolling(10).mean()
     start_date = returns_df.index.sort_values()[252]
     start_date
-    return alphas_dict, start_date
+    return alphas_df, start_date
 
 
 @app.cell
 def _(
     INITIAL_CAPITAL,
     OPT_PARAMS,
-    alphas_dict,
+    Sigmas,
+    alphas_df,
     mo,
     returns_df,
     run_multiple_backtests,
@@ -149,10 +158,11 @@ def _(
 ):
     # Configure multiple portfolios with different alphas / risk targets
     configs = {}
-    for _name, _alpha_df in alphas_dict.items():
+    for _name, _Sigmas in Sigmas.items():
         configs[_name] = dict(
             returns=returns_df,
-            alphas=_alpha_df,
+            alphas=alphas_df,
+            risk_models=_Sigmas, 
             initial_capital=INITIAL_CAPITAL,
             start_date=start_date,
             markowitz_pars=OPT_PARAMS,

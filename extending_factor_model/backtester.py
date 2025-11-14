@@ -9,6 +9,7 @@ import pandas as pd
 from typing import Callable, Optional, Dict, Any, Iterable
 from .portfolio_optimizer import markowitz_problem
 from scipy.sparse.linalg import svds
+from copy import deepcopy
 
 
 def _beta_from_half_life(H: int) -> float:
@@ -53,8 +54,8 @@ def _ewma_cov(matrix, beta) -> list[np.ndarray]:
 
     return cov_list
 
-def iterated_ewma(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
-    """Iterated EWMA covariance estimator.
+def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
+    """Iterated EWMA covariance estimator + eigenvalue decomposition.
 
     Parameters
     ----------
@@ -100,22 +101,102 @@ def iterated_ewma(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
         D_t = np.diag(vol_ewma[t])
         R_t = stand_covs[t]
         cov_t = D_t @ R_t @ D_t
+
+        D = np.sqrt(np.diag(cov_t))
+        corr_t = np.diag(1/D) @ cov_t @ np.diag(1/D)
+
         covariances[df_returns.index[t]] = {}
         covariances[df_returns.index[t]]["Sigma"] = cov_t
 
-        # Low-rank approximation
-        U, S, V = svds(cov_t, k=min(rank, n-1))
-        F = U @ np.diag(np.sqrt(S))
-        D = np.maximum(np.diag(cov_t - F @ F.T), 0)
-        covariances[df_returns.index[t]]["F"] = F
-        covariances[df_returns.index[t]]["D"] = D
+        if rank is not None:
+            # Low-rank approximation
+            U, S, V = svds(corr_t, k=min(rank, n-1))
+            F = U @ np.diag(np.sqrt(S))
+            D_t = np.maximum(np.diag(np.eye(F.shape[0]) - F @ F.T), 0)
+            F_cov = np.diag(D) @ F
+            D_cov = np.diag( np.diag(D) @ np.diag(D_t) @ np.diag(D) )
+            covariances[df_returns.index[t]]["F"] = F_cov
+            covariances[df_returns.index[t]]["D"] = D_cov
 
     return covariances
+
+def covariances_by_KL(df_returns: pd.DataFrame, Sigma_dict: dict, burnin:int, H:int=126) -> dict:
+    """
+    Runs the expecation-maximization algorithm to estimate the time-varying covariance matrices for a 
+    dataframe of returns.
+
+    @ t uses returns up to and including t to estimate Sigma_t.
+
+    Args:
+    - df_returns (pd.DataFrame): DataFrame of asset returns with datetime index and assets as columns.
+    - Sigma_dict (dict): Initial covariance matrices for each time point.
+    - burnin (int): Number of initial periods to skip for covariance estimation.
+    - H (int): Half-life for EWMA decay.
+
+    Returns:
+    - dict: Dictionary of estimated covariance matrices using EM
+    
+    """
+
+    ### Checks
+    if set(Sigma_dict.keys()) != set(df_returns.index.unique()):
+        raise ValueError("Sigma_dict keys must match df_returns index")
+    
+    ### Initializations
+    Sigma_em_dict = deepcopy(Sigma_dict)
+    beta = _beta_from_half_life(H)
+
+    ### Get IEWMA covariances as starting point
+    IEWMA_returns = _ewma_cov(df_returns.values, beta)
+    IEWMA_returns = dict(zip(df_returns.index.unique(), IEWMA_returns))
+
+    ######################################################################
+    ### Initialize EM for the first date
+    _init_date = df_returns.index.unique()[burnin]
+
+    F_prev = Sigma_dict[_init_date]['F']
+    D_prev = Sigma_dict[_init_date]['D']
+    inv_D_prev = 1 / D_prev
+    G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + np.eye(F_prev.shape[1])  )
+
+    ######################################################################
+    # Perform EM for dates
+    for date in df_returns.index.unique()[burnin:]:
+
+        if date == _init_date:
+            num_iters = 1_000
+        else:
+            num_iters = 20
+
+        C_rr = IEWMA_returns[date]
+
+        for _ in range(num_iters):
+            C_rs = (C_rr * inv_D_prev[None, :]) @ F_prev @ G_prev
+
+            tmp_prev = (F_prev.T * inv_D_prev[None, :]) @ C_rr @ (F_prev * inv_D_prev[:, None])
+            C_ss = G_prev + G_prev @ tmp_prev @ G_prev
+
+            # Now solve
+            F_prev = np.linalg.solve( C_ss.T, C_rs.T ).T
+
+            D_prev = np.diag(C_rr) - 2 * np.sum(C_rs * F_prev, axis=1) + np.sum(F_prev * (F_prev @ C_ss), axis=1)
+            inv_D_prev = 1 / D_prev
+
+            G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + np.eye(F_prev.shape[1]) )
+
+        Sigma_em_dict[date]["F"] = F_prev
+        Sigma_em_dict[date]["D"] = D_prev
+        Sigma_em_dict[date]["Sigma"] = F_prev @ F_prev.T + np.diag(D_prev)
+        Sigma_em_dict[date]["C_rr"] = C_rr
+
+    return Sigma_em_dict
+
 
 
 def run_backtest(
     returns: pd.DataFrame,
     alphas: pd.DataFrame,
+    risk_models: dict, 
     initial_capital: float = 1_000_000.0,
     start_date: pd.Timestamp=None,
     markowitz_pars: dict = {
@@ -142,6 +223,8 @@ def run_backtest(
     alphas : pd.DataFrame
         Alpha signals with datetime index and assets as columns.
         alpha[t] determines h_{t+1} which is acted upon by r_{t+1}
+    risk_models : dict
+        Precomputed covariance matrices for each date.
     initial_capital : float, optional
         Initial portfolio value (default: 1,000,000).
     start_date : datetime
@@ -184,9 +267,6 @@ def run_backtest(
     portfolio_returns = []
     turnover_history = []
 
-    # Compute and store EWMAs
-    ewma_covs = iterated_ewma(returns)
-
     # Set initial portfolio
     cash_value = initial_capital
     portfolio_value = initial_capital
@@ -205,7 +285,7 @@ def run_backtest(
 
     for date, next_date in zip(dates_to_backtest[:-1], dates_to_backtest[1:]):
 
-        Sigma_t = ewma_covs[date]  # dict with Sigma,F,D
+        Sigma_t = risk_models[date]  # dict with Sigma,F,D
 
         ############################################################
         # Solve Markowitz
