@@ -9,6 +9,7 @@ import pandas as pd
 from typing import Callable, Optional, Dict, Any, Iterable
 from .portfolio_optimizer import markowitz_problem
 from scipy.sparse.linalg import svds
+from scipy.linalg import block_diag, eigh
 from copy import deepcopy
 
 
@@ -117,13 +118,19 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
             D_cov = np.diag( np.diag(D) @ np.diag(D_t) @ np.diag(D) )
             covariances[df_returns.index[t]]["F"] = F_cov
             covariances[df_returns.index[t]]["D"] = D_cov
+            covariances[df_returns.index[t]]["Omega"] = np.eye(F.shape[1])
 
     return covariances
 
-def covariances_by_KL(df_returns: pd.DataFrame, Sigma_dict: dict, burnin:int, H:int=126) -> dict:
+def covariances_by_KL(
+        df_returns: pd.DataFrame, 
+        Sigma_dict: dict, 
+        burnin:int, 
+        H:int=126) -> dict:
     """
     Runs the expecation-maximization algorithm to estimate the time-varying covariance matrices for a 
-    dataframe of returns.
+    dataframe of returns. It fits the factor model
+        F Ω F' + D
 
     @ t uses returns up to and including t to estimate Sigma_t.
 
@@ -186,12 +193,159 @@ def covariances_by_KL(df_returns: pd.DataFrame, Sigma_dict: dict, burnin:int, H:
 
         Sigma_em_dict[date]["F"] = F_prev
         Sigma_em_dict[date]["D"] = D_prev
+        Sigma_em_dict[date]["Omega"] = np.eye(F_prev.shape[1])
         Sigma_em_dict[date]["Sigma"] = F_prev @ F_prev.T + np.diag(D_prev)
         Sigma_em_dict[date]["C_rr"] = C_rr
 
     return Sigma_em_dict
 
+def extending_covariances_by_KL(
+        df_returns: pd.DataFrame, 
+        Sigma_dict: dict, 
+        burnin:int, 
+        H:int=126, 
+        num_additional_factors:int=5) -> dict:
+    """
+    Extends the covariance matrices by adding new factors using a KL divergence approach.
 
+    It fits the factor model
+        [F_factors; F_new] [Omega     0] [F_factors; F_new]^T + D
+                           [0,        I]
+
+        where F_factors is the matrix of factor exposures from Sigma_dict,
+        F_new is the matrix of new factor exposures to be estimated,
+        Omega is the covariance matrix of the original factors to be estimated,
+        D is the diagonal specific risk matrix to be estimated.
+
+        @ t uses returns up to and including t to estimate the covariance matrix at time t.
+        Args:
+        - df_returns (pd.DataFrame): DataFrame of asset returns with datetime index and assets as columns.
+        - Sigma_dict (dict): Initial covariance matrices for each time point. Index is date and each date is a dict with keys 
+            "F", "Omega", "D", "Sigma".
+        - burnin (int): Number of initial periods to skip for covariance estimation.
+        - H (int): Half-life for EWMA decay.
+        - num_additional_factors (int): Number of new factors to add.
+
+    Returns:
+        - dict: Dictionary of estimated covariance matrices using extended KL approach
+
+    
+    """
+
+    ### Checks
+    if set(df_returns.index.unique()).issubset(set(Sigma_dict.keys())) is False:
+        raise ValueError("Sigma_dict keys must be a superset of df_returns index")
+    if not all("F" in Sigma_dict[date] and "Omega" in Sigma_dict[date] and "D" in Sigma_dict[date] and "Sigma" in Sigma_dict[date] for date in Sigma_dict):
+        raise ValueError("Each entry in Sigma_dict must contain keys 'F', 'Omega', 'D', and 'Sigma'")
+    
+    ### Initializations
+    Sigma_em_dict = deepcopy(Sigma_dict)
+    beta = _beta_from_half_life(H)
+
+    ### Get IEWMA covariances as starting point
+    IEWMA_returns = _ewma_cov(df_returns.values, beta)
+    IEWMA_returns = dict(zip(df_returns.index.unique(), IEWMA_returns))
+
+    ### Initialize factor covariance for additional factors
+    Omega_added_factors = np.eye(num_additional_factors)
+    Omega_added_factors_inv = np.eye(num_additional_factors)
+
+    ######################################################################
+    ### Initialize EM for the first date
+    _init_date = df_returns.index.unique()[burnin]
+    num_factors = Sigma_dict[_init_date]['F'].shape[1]
+    num_assets = Sigma_dict[_init_date]['F'].shape[0]
+    num_iters = 700
+
+    for date in df_returns.index.unique()[burnin:]:
+
+        C_rr = IEWMA_returns[date]
+
+        F_factors = Sigma_dict[date]['F']
+
+        # Find initial F_added_factors
+        R = df_returns.loc[:date].values.T
+        S_factors = np.linalg.lstsq(F_factors, R, rcond=None)[0]
+        residuals = R - F_factors @ S_factors
+        U, S, Vt = svds(residuals, k=num_additional_factors)
+        F_added_factors_prev = U @ np.diag(np.sqrt(S))
+
+        # Set total F_prev
+        F_prev = np.hstack([F_factors, F_added_factors_prev])
+
+        # Set Omega_factors_prev
+        Omega_factors_prev = Sigma_dict[date]['Omega']
+        Omega_inv_prev = block_diag( np.linalg.inv(Omega_factors_prev), Omega_added_factors_inv )
+
+        # Set initial D_prev
+        D_prev = Sigma_dict[date]['Sigma'] - (F_factors @ Omega_factors_prev @ F_factors.T + F_added_factors_prev @ F_added_factors_prev.T)
+        D_prev = np.diag(D_prev)
+        D_prev = np.maximum(D_prev, 1e-4*np.max(np.diag(Sigma_dict[date]["D"])))
+        inv_D_prev = 1 / D_prev
+
+        G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
+
+        # Store log likelihoods and frobenius norms
+        log_likes = []
+        frobs = []
+
+        for _ in range(num_iters):
+            C_rs = (C_rr * inv_D_prev[None, :]) @ F_prev @ G_prev
+
+            tmp_prev = (F_prev.T * inv_D_prev[None, :]) @ C_rr @ (F_prev * inv_D_prev[:, None])
+            C_ss = G_prev + G_prev @ tmp_prev @ G_prev
+
+            C_ss_factors = C_ss[:num_factors, :num_factors]
+            C_ss_added = C_ss[num_factors:, num_factors:]
+            C_ss_cross = C_ss[:num_factors, num_factors:]
+
+            # Compute Omega_factors update
+            Omega_factors_prev = C_ss_factors
+
+            # Compute F_added_factors update
+            F_added_factors_prev = np.linalg.solve( C_ss_added.T, (C_rs[:, num_factors:] - F_factors @ C_ss_cross).T ).T
+            F_prev = np.hstack([F_factors, F_added_factors_prev])
+
+            # Compute D_prev update
+            D_prev = np.diag(C_rr) - 2 * np.sum(C_rs * F_prev, axis=1) + np.sum(F_prev * (F_prev @ C_ss), axis=1)
+            inv_D_prev = 1 / D_prev
+
+            # Compute Omega_inv_prev
+            Omega_inv_prev = block_diag( np.linalg.inv(Omega_factors_prev), Omega_added_factors_inv )
+
+            G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
+
+            ## Store log likelihood and frobenius norm
+            Sigma_t = F_prev @ block_diag(Omega_factors_prev, Omega_added_factors) @ F_prev.T + np.diag(D_prev)
+
+
+            log_likes.append(
+                np.linalg.slogdet(Sigma_t)[1] + np.linalg.trace( np.linalg.inv(Sigma_t) @ C_rr )
+            )
+
+            frobs.append(
+                np.linalg.norm(np.diag(Sigma_t) - np.diag(C_rr))**2 / np.linalg.norm(np.diag(C_rr))**2
+            )
+
+        # Store results
+        L, U = eigh(Omega_factors_prev)
+        Omega_factors_prev_sqrt = U @ np.diag(np.sqrt(np.maximum(L, 0.)))
+        Sigma_em_dict[date]["F"] = np.hstack([F_factors @ Omega_factors_prev_sqrt, F_added_factors_prev])
+        Sigma_em_dict[date]["D"] = D_prev
+        Sigma_em_dict[date]["Sigma"] = Sigma_em_dict[date]["F"] @ Sigma_em_dict[date]["F"].T + np.diag(D_prev)
+        Sigma_em_dict[date]["Omega"] = block_diag(Omega_factors_prev, Omega_added_factors)
+        Sigma_em_dict[date]["F_original"] = F_factors
+        Sigma_em_dict[date]["Omega_original"] = Omega_factors_prev
+        Sigma_em_dict[date]["F_added"] = F_added_factors_prev
+        Sigma_em_dict[date]["C_rr"] = C_rr
+        Sigma_em_dict[date]["log_likes"] = log_likes
+        Sigma_em_dict[date]["frobs"] = frobs
+
+    return Sigma_em_dict
+
+
+
+        
 
 def run_backtest(
     returns: pd.DataFrame,

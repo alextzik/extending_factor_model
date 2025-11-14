@@ -29,7 +29,7 @@ def _():
     import plotly.express as px
     import plotly.graph_objects as go
 
-    from extending_factor_model.backtester import run_multiple_backtests, covariances_by_EIG, covariances_by_KL
+    from extending_factor_model.backtester import run_multiple_backtests, covariances_by_EIG, covariances_by_KL, extending_covariances_by_KL
     from extending_factor_model.plots import (
         plot_multi_nav,
         plot_multi_cumulative,
@@ -60,6 +60,7 @@ def _():
         UNIVERSE_SIZE,
         covariances_by_EIG,
         covariances_by_KL,
+        extending_covariances_by_KL,
         mo,
         pd,
         plot_ewma_vol,
@@ -128,10 +129,16 @@ def _(START_DATE, TODAY, mo, pd, universe, yf):
 
 
 @app.cell
-def _(covariances_by_EIG, covariances_by_KL, returns_df):
+def _(
+    covariances_by_EIG,
+    covariances_by_KL,
+    extending_covariances_by_KL,
+    returns_df,
+):
     Sigmas = {}
     Sigmas["EIG"] = covariances_by_EIG(returns_df)
     Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
+    Sigmas["KL"]  = extending_covariances_by_KL(returns_df, Sigmas["KL"], burnin=66, H=126, num_additional_factors=10)
     return (Sigmas,)
 
 
