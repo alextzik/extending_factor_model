@@ -1,0 +1,54 @@
+###############################################
+# Project managed by Poetry
+# Converted from setuptools style to Poetry.
+###############################################
+
+[tool.poetry]
+name = "extending_factor_model"
+version = "0.1.0"
+description = "Portfolio optimization and extending risk models"
+readme = "README.md"
+# Add your name/email if desired:
+authors = []
+# license = "MIT"  # Uncomment & adjust if you have a license
+packages = [
+  { include = "extending_factor_model" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+numpy = ">=1.24.0"
+pandas = ">=2.0.0"
+cvxpy = ">=1.4.0"
+scipy = ">=1.10.0"
+yfinance = ">=0.2.40"
+plotly = ">=5.22.0"# Use conda env
+matplotlib = "^3.10.6"
+joblib = "^1.5.2"
+openai = "^2.3.0"
+[tool.poetry.extras]
+viz = ["marimo", "matplotlib", "seaborn"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0.0"
+black = ">=23.0.0"
+flake8 = ">=6.0.0"
+
+# Visualization libs placed in an optional group so they can be installed with: poetry install --with viz
+[tool.poetry.group.viz.dependencies]
+marimo = ">=0.1.0"
+matplotlib = ">=3.7.0"
+seaborn = ">=0.12.0"
+
+# Tool configuration examples (expand as needed)
+[tool.black]
+line-length = 88
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203"]
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
