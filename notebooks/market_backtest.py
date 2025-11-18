@@ -28,6 +28,7 @@ def _():
     import matplotlib.pyplot as plt
     import plotly.express as px
     import plotly.graph_objects as go
+    import pickle
 
     from extending_factor_model.backtester import run_multiple_backtests, covariances_by_EIG, covariances_by_KL, extending_covariances_by_KL
     from extending_factor_model.plots import (
@@ -55,20 +56,19 @@ def _():
     return (
         INITIAL_CAPITAL,
         OPT_PARAMS,
-        START_DATE,
-        TODAY,
         UNIVERSE_SIZE,
-        covariances_by_EIG,
         covariances_by_KL,
         extending_covariances_by_KL,
         mo,
+        np,
         pd,
+        pickle,
         plot_ewma_vol,
         plot_multi_cumulative,
         plot_multi_nav,
+        plt,
         px,
         run_multiple_backtests,
-        yf,
     )
 
 
@@ -100,46 +100,75 @@ def _(UNIVERSE_SIZE, mo, pd):
         universe = fallback[:UNIVERSE_SIZE]
         source_note = f"(Fallback static subset {len(universe)} tickers)"
     mo.md(f"### Universe Size: {len(universe)} {source_note}")
-    return (universe,)
+    return
 
 
 @app.cell
-def _(START_DATE, TODAY, mo, pd, universe, yf):
-    with mo.status.spinner(f"Downloading OHLCV data for {len(universe)} tickers …"):
-        px_data = yf.download(
-            universe,
-            start=START_DATE,
-            end=TODAY,
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-            threads=True,
-        )
-    # Extract Close prices (yfinance multi-index aware)
-    if isinstance(px_data.columns, pd.MultiIndex):
-        close = px_data.xs("Close", axis=1, level=1)
-    else:  # Single symbol edge case
-        close = px_data.to_frame(name=universe[0])
-    # Drop assets with any missing data
-    close = close.dropna(axis=1, how="any")
-    returns_df = close.pct_change().dropna()
-    returns_df = returns_df.replace(0.0, 1e-4)
+def _(mo, pickle):
+    # with mo.status.spinner(f"Downloading OHLCV data for {len(universe)} tickers …"):
+    #     px_data = yf.download(
+    #         universe,
+    #         start=START_DATE,
+    #         end=TODAY,
+    #         auto_adjust=True,
+    #         progress=False,
+    #         group_by="ticker",
+    #         threads=True,
+    #     )
+    # # Extract Close prices (yfinance multi-index aware)
+    # if isinstance(px_data.columns, pd.MultiIndex):
+    #     close = px_data.xs("Close", axis=1, level=1)
+    # else:  # Single symbol edge case
+    #     close = px_data.to_frame(name=universe[0])
+    # # Drop assets with any missing data
+    # close = close.dropna(axis=1, how="any")
+    # returns_df = close.pct_change().dropna()
+    # returns_df = returns_df.fillna(0.0)
+
+    # with open("returns_df.pkl", "wb") as _f:
+    #     pickle.dump(returns_df, _f)
+
+    with open("returns_df.pkl", "rb") as _f:
+        returns_df = pickle.load(_f)
+
     mo.md(f"Data range: **{returns_df.index.min().date()}** → **{returns_df.index.max().date()}**, final assets: **{returns_df.shape[1]}**")
     return (returns_df,)
 
 
 @app.cell
-def _(
-    covariances_by_EIG,
-    covariances_by_KL,
-    extending_covariances_by_KL,
-    returns_df,
-):
+def _(pickle):
     Sigmas = {}
-    Sigmas["EIG"] = covariances_by_EIG(returns_df)
-    Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
-    Sigmas["KL"]  = extending_covariances_by_KL(returns_df, Sigmas["KL"], burnin=66, H=126, num_additional_factors=10)
+    # Sigmas["EIG"] = covariances_by_EIG(returns_df)
+
+    # with open("sigmas_eig.pkl", "wb") as _f:
+    #     pickle.dump(Sigmas["EIG"], _f)
+
+    with open("sigmas_eig.pkl", "rb") as _f:
+        Sigmas["EIG"] = pickle.load(_f)
     return (Sigmas,)
+
+
+@app.cell
+def _(Sigmas, covariances_by_KL, returns_df):
+    Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
+    return
+
+
+@app.cell
+def _(Sigmas, extending_covariances_by_KL, returns_df):
+    Sigmas["KL_extend"]  = extending_covariances_by_KL(returns_df, Sigmas["KL"], burnin=66, H=126, num_additional_factors=5)
+    return
+
+
+@app.cell
+def _(Sigmas, np, plt, returns_df):
+    date = returns_df.index[280]
+    Sigma = Sigmas["KL"][date]
+
+    plt.scatter(np.diag(Sigma["C_rr"]), np.diag(Sigma["Sigma"]))
+    plt.plot(np.diag(Sigma["Sigma"]), np.diag(Sigma["Sigma"]), linestyle="--", color="r")
+    plt.show()
+    return
 
 
 @app.cell

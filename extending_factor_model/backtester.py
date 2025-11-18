@@ -146,8 +146,8 @@ def covariances_by_KL(
     """
 
     ### Checks
-    if set(Sigma_dict.keys()) != set(df_returns.index.unique()):
-        raise ValueError("Sigma_dict keys must match df_returns index")
+    if set(df_returns.index.unique()).issubset(set(Sigma_dict.keys())) is False:
+        raise ValueError("Sigma_dict keys must be a superset of df_returns index")
     
     ### Initializations
     Sigma_em_dict = deepcopy(Sigma_dict)
@@ -177,6 +177,9 @@ def covariances_by_KL(
 
         C_rr = IEWMA_returns[date]
 
+        neg_log_likes = []
+        frobs = []
+
         for _ in range(num_iters):
             C_rs = (C_rr * inv_D_prev[None, :]) @ F_prev @ G_prev
 
@@ -191,11 +194,26 @@ def covariances_by_KL(
 
             G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + np.eye(F_prev.shape[1]) )
 
+            #############################
+            # Sigma_t = F_prev @ F_prev.T + np.diag(D_prev)
+
+            # neg_log_likes.append(
+            #     np.linalg.slogdet(Sigma_t)[1] + np.linalg.trace( np.linalg.inv(Sigma_t) @ C_rr )
+            # )
+
+            # frobs.append(
+            #     np.linalg.norm(np.diag(Sigma_t) - np.diag(C_rr))**2 / np.linalg.norm(np.diag(C_rr))**2
+            # )
+            # print(_)
+        print(date)
+
         Sigma_em_dict[date]["F"] = F_prev
         Sigma_em_dict[date]["D"] = D_prev
         Sigma_em_dict[date]["Omega"] = np.eye(F_prev.shape[1])
         Sigma_em_dict[date]["Sigma"] = F_prev @ F_prev.T + np.diag(D_prev)
         Sigma_em_dict[date]["C_rr"] = C_rr
+        Sigma_em_dict[date]["neg_log_likes"] = neg_log_likes
+        Sigma_em_dict[date]["frobs"] = frobs
 
     return Sigma_em_dict
 
@@ -255,7 +273,7 @@ def extending_covariances_by_KL(
     _init_date = df_returns.index.unique()[burnin]
     num_factors = Sigma_dict[_init_date]['F'].shape[1]
     num_assets = Sigma_dict[_init_date]['F'].shape[0]
-    num_iters = 700
+    num_iters = 300
 
     for date in df_returns.index.unique()[burnin:]:
 
@@ -286,7 +304,7 @@ def extending_covariances_by_KL(
         G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
 
         # Store log likelihoods and frobenius norms
-        log_likes = []
+        neg_log_likes = []
         frobs = []
 
         for _ in range(num_iters):
@@ -315,17 +333,18 @@ def extending_covariances_by_KL(
 
             G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
 
-            ## Store log likelihood and frobenius norm
-            Sigma_t = F_prev @ block_diag(Omega_factors_prev, Omega_added_factors) @ F_prev.T + np.diag(D_prev)
+            # Store log likelihood and frobenius norm
+            # Sigma_t = F_prev @ block_diag(Omega_factors_prev, Omega_added_factors) @ F_prev.T + np.diag(D_prev)
 
 
-            log_likes.append(
-                np.linalg.slogdet(Sigma_t)[1] + np.linalg.trace( np.linalg.inv(Sigma_t) @ C_rr )
-            )
+            # neg_log_likes.append(
+            #     np.linalg.slogdet(Sigma_t)[1] + np.linalg.trace( np.linalg.inv(Sigma_t) @ C_rr )
+            # )
 
-            frobs.append(
-                np.linalg.norm(np.diag(Sigma_t) - np.diag(C_rr))**2 / np.linalg.norm(np.diag(C_rr))**2
-            )
+            # frobs.append(
+            #     np.linalg.norm(np.diag(Sigma_t) - np.diag(C_rr))**2 / np.linalg.norm(np.diag(C_rr))**2
+            # )
+        print(date)
 
         # Store results
         L, U = eigh(Omega_factors_prev)
@@ -338,14 +357,12 @@ def extending_covariances_by_KL(
         Sigma_em_dict[date]["Omega_original"] = Omega_factors_prev
         Sigma_em_dict[date]["F_added"] = F_added_factors_prev
         Sigma_em_dict[date]["C_rr"] = C_rr
-        Sigma_em_dict[date]["log_likes"] = log_likes
+        Sigma_em_dict[date]["neg_log_likes"] = neg_log_likes
         Sigma_em_dict[date]["frobs"] = frobs
 
     return Sigma_em_dict
 
 
-
-        
 
 def run_backtest(
     returns: pd.DataFrame,
