@@ -103,5 +103,18 @@ def _(log_likes, np):
     return
 
 
+@app.cell
+def _(cov_dict):
+    date = list(cov_dict.keys())[200]
+    252*cov_dict[date]["D"]
+    return (date,)
+
+
+@app.cell
+def _(cov_extended_dict, date):
+    252*cov_extended_dict[date]["D"]
+    return
+
+
 if __name__ == "__main__":
     app.run()

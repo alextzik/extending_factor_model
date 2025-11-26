@@ -84,8 +84,8 @@ def _(markowitz, monthly_factor_returns, np, pd, risk_models):
 
 
 @app.cell
-def _(factor_returns, holdings_df, plt):
-    (1+factor_returns).cumprod().plot(label=factor_returns.columns)
+def _(factor_returns, holdings_df, monthly_factor_returns, plt):
+    (1+monthly_factor_returns).cumprod().plot(label=factor_returns.columns)
     holdings_df.dropna().sum(axis=1).plot(label="portfolio")
     plt.yscale("log")
     plt.legend()
@@ -118,6 +118,12 @@ def _(holdings_df, monthly_factor_returns, np, pd):
 @app.cell
 def _(monthly_factor_returns_extended):
     monthly_factor_returns_extended.corr()
+    return
+
+
+@app.cell
+def _(holdings_df):
+    holdings_df.plot()
     return
 
 

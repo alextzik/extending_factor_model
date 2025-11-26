@@ -16,7 +16,7 @@ def _():
 
     from scipy.linalg import lstsq
     import statsmodels as sm
-    return load_factor_data, lstsq, np, pd, sm
+    return load_factor_data, lstsq, np, pd, plt, sm
 
 
 @app.cell
@@ -58,6 +58,7 @@ def _(lstsq, np, pd, sm):
         alphas_list = []
         betas_list = []
         r2_list = []
+        residuals_list = []
 
         for t in range(1, len(X_full)):
             print(f"{t} / {len(X_full)}")
@@ -85,23 +86,26 @@ def _(lstsq, np, pd, sm):
             ss_tot = np.sum(weights * (y_t - np.average(y_t, weights=weights))**2)
             r2_list.append(1 - ss_res / ss_tot if ss_tot > 0 else np.nan)
 
+            residuals_list.append(y_t[-1] - y_pred[-1])
+
         betas = pd.DataFrame(betas_list, index=asset_returns.index[1:], columns=factor_returns.columns)
         alphas = pd.Series(alphas_list, index=asset_returns.index[1:], name="alpha")
         r2 = pd.Series(r2_list, index=asset_returns.index[1:], name="r2")
+        residuals = pd.Series(residuals_list, index=asset_returns.index[1:], name="residuals")
 
-        return betas, alphas, r2
+        return betas, alphas, r2, residuals
     return (ew_regression_with_r2,)
 
 
 @app.cell
 def _(asset_returns, ew_regression_with_r2, factor_returns):
-    betas, alphas, r2 = ew_regression_with_r2(asset_returns.iloc[:, 0], factor_returns, 126)
-    return alphas, betas, r2
+    betas, alphas, r2, residuals = ew_regression_with_r2(asset_returns.iloc[:, 0], factor_returns, 126)
+    return alphas, betas, r2, residuals
 
 
 @app.cell
 def _(betas):
-    betas.iloc[126:]["Mom"].plot()
+    betas.iloc[126:].plot()
     return
 
 
@@ -114,6 +118,28 @@ def _(r2):
 @app.cell
 def _(alphas):
     alphas.iloc[126:].plot()
+    return
+
+
+@app.cell
+def _(asset_returns, np, pd, plt, residuals):
+    from extending_factor_model.risk_models.compute_risk_model_statistical import _ewma_series as ewma_series
+    from extending_factor_model.risk_models.compute_risk_model_statistical import _beta_from_half_life as beta_from_half_life
+
+    ewma_returns = np.sqrt(
+            pd.Series(ewma_series(asset_returns.iloc[:, 0]**2, beta_from_half_life(126)), 
+                      index=asset_returns.iloc[:, 0].index)
+            )
+
+    ewma_residuals = np.sqrt(
+            pd.Series(ewma_series(residuals**2, beta_from_half_life(126)), 
+                      index=residuals.index)
+            )
+
+    ewma_returns[126:].plot(label="returns")
+    ewma_residuals[126:].plot(label="residuals")
+    plt.legend()
+    plt.show()
     return
 
 
