@@ -26,6 +26,7 @@ plotly = ">=5.22.0"# Use conda env
 matplotlib = "^3.10.6"
 joblib = "^1.5.2"
 openai = "^2.3.0"
+statsmodels = "^0.14.5"
 [tool.poetry.extras]
 viz = ["marimo", "matplotlib", "seaborn"]
 

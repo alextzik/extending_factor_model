@@ -63,7 +63,7 @@ def _(cp, pd):
 @app.cell
 def _(markowitz, monthly_factor_returns, np, pd, risk_models):
     holdings_df = pd.DataFrame(np.nan, index=monthly_factor_returns.index, columns=["Mkt-RF", "ST_Rev", "cash"])
-    alpha = pd.DataFrame(np.array([1., 1.5, 0.]), index=holdings_df.columns)
+    alpha = pd.DataFrame(np.array([1., 1.3, 0.]), index=holdings_df.columns)
 
     current_holdings = pd.Series(np.array([0., 0., 1.]), index=holdings_df.columns)
 
