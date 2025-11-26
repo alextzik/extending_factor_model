@@ -112,7 +112,7 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
         corr_t = np.diag(1/D) @ cov_t @ np.diag(1/D)
 
         covariances[df_returns.index[t]] = {}
-        covariances[df_returns.index[t]]["Sigma"] = cov_t
+        covariances[df_returns.index[t]]["Sigma"] = pd.DataFrame(cov_t, index=df_returns.columns, columns=df_returns.columns)
 
         if rank is not None:
             # Low-rank approximation
@@ -121,9 +121,11 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
             D_t = np.maximum(np.diag(np.eye(F.shape[0]) - F @ F.T), 0)
             F_cov = np.diag(D) @ F
             D_cov = np.diag( np.diag(D) @ np.diag(D_t) @ np.diag(D) )
-            covariances[df_returns.index[t]]["F"] = F_cov
-            covariances[df_returns.index[t]]["D"] = D_cov
-            covariances[df_returns.index[t]]["Omega"] = np.eye(F.shape[1])
+            covariances[df_returns.index[t]]["F"] = pd.DataFrame(F_cov, index=df_returns.columns, columns=pd.Index([f"Factor {i+1}" for i in range(F.shape[1])]))
+            covariances[df_returns.index[t]]["D"] = pd.Series(D_cov, index=df_returns.columns)
+            covariances[df_returns.index[t]]["Omega"] = pd.DataFrame(np.eye(F.shape[1]), 
+                                                                     index=pd.Index([f"Factor {i+1}" for i in range(F.shape[1])]), 
+                                                                     columns=pd.Index([f"Factor {i+1}" for i in range(F.shape[1])]))
 
     return covariances
 
@@ -212,15 +214,18 @@ def covariances_by_KL(
             # print(_)
         print(date)
 
-        Sigma_em_dict[date]["F"] = F_prev
-        Sigma_em_dict[date]["D"] = D_prev
-        Sigma_em_dict[date]["Omega"] = np.eye(F_prev.shape[1])
-        Sigma_em_dict[date]["Sigma"] = F_prev @ F_prev.T + np.diag(D_prev)
-        Sigma_em_dict[date]["C_rr"] = C_rr
+        Sigma_em_dict[date]["F"] = pd.DataFrame(F_prev, index=df_returns.columns, columns=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]))
+        Sigma_em_dict[date]["D"] = pd.Series(D_prev, index=df_returns.columns)
+        Sigma_em_dict[date]["Omega"] = pd.DataFrame(np.eye(F_prev.shape[1]), 
+                                                            index=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]), 
+                                                            columns=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]))
+        Sigma_em_dict[date]["Sigma"] = pd.DataFrame(F_prev @ F_prev.T + np.diag(D_prev), index=df_returns.columns, columns=df_returns.columns)
+        Sigma_em_dict[date]["C_rr"] = pd.DataFrame(C_rr, index=df_returns.columns, columns=df_returns.columns)
         Sigma_em_dict[date]["neg_log_likes"] = neg_log_likes
         Sigma_em_dict[date]["frobs"] = frobs
 
     return Sigma_em_dict
+
 
 def extending_covariances_by_KL(
         df_returns: pd.DataFrame, 
@@ -244,7 +249,7 @@ def extending_covariances_by_KL(
         Args:
         - df_returns (pd.DataFrame): DataFrame of asset returns with datetime index and assets as columns.
         - Sigma_dict (dict): Initial covariance matrices for each time point. Index is date and each date is a dict with keys 
-            "F", "Omega", "D", "Sigma".
+            "F", "Omega", "D", "Sigma". These are dataframes (everything except D) /series (for D).
         - burnin (int): Number of initial periods to skip for covariance estimation.
         - H (int): Half-life for EWMA decay.
         - num_additional_factors (int): Number of new factors to add.
@@ -256,7 +261,7 @@ def extending_covariances_by_KL(
     """
 
     ### Checks
-    if set(df_returns.index.unique()).issubset(set(Sigma_dict.keys())) is False:
+    if set(Sigma_dict.keys()).issubset(set(df_returns.index.unique())) is False:
         raise ValueError("Sigma_dict keys must be a superset of df_returns index")
     if not all("F" in Sigma_dict[date] and "Omega" in Sigma_dict[date] and "D" in Sigma_dict[date] and "Sigma" in Sigma_dict[date] for date in Sigma_dict):
         raise ValueError("Each entry in Sigma_dict must contain keys 'F', 'Omega', 'D', and 'Sigma'")
@@ -284,7 +289,7 @@ def extending_covariances_by_KL(
 
         C_rr = IEWMA_returns[date]
 
-        F_factors = Sigma_dict[date]['F']
+        F_factors = Sigma_dict[date]['F'].to_numpy()
 
         # Find initial F_added_factors
         R = df_returns.loc[:date].values.T
@@ -297,13 +302,13 @@ def extending_covariances_by_KL(
         F_prev = np.hstack([F_factors, F_added_factors_prev])
 
         # Set Omega_factors_prev
-        Omega_factors_prev = Sigma_dict[date]['Omega']
+        Omega_factors_prev = Sigma_dict[date]['Omega'].to_numpy()
         Omega_inv_prev = block_diag( np.linalg.inv(Omega_factors_prev), Omega_added_factors_inv )
 
         # Set initial D_prev
-        D_prev = Sigma_dict[date]['Sigma'] - (F_factors @ Omega_factors_prev @ F_factors.T + F_added_factors_prev @ F_added_factors_prev.T)
+        D_prev = Sigma_dict[date]['Sigma'].to_numpy() - (F_factors @ Omega_factors_prev @ F_factors.T + F_added_factors_prev @ F_added_factors_prev.T)
         D_prev = np.diag(D_prev)
-        D_prev = np.maximum(D_prev, 1e-4*np.max(np.diag(Sigma_dict[date]["D"])))
+        D_prev = np.maximum(D_prev, 1e-4*np.max(np.diag(Sigma_dict[date]["D"].to_numpy())))
         inv_D_prev = 1 / D_prev
 
         G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
@@ -354,14 +359,22 @@ def extending_covariances_by_KL(
         # Store results
         L, U = eigh(Omega_factors_prev)
         Omega_factors_prev_sqrt = U @ np.diag(np.sqrt(np.maximum(L, 0.)))
-        Sigma_em_dict[date]["F"] = np.hstack([F_factors @ Omega_factors_prev_sqrt, F_added_factors_prev])
-        Sigma_em_dict[date]["D"] = D_prev
-        Sigma_em_dict[date]["Sigma"] = Sigma_em_dict[date]["F"] @ Sigma_em_dict[date]["F"].T + np.diag(D_prev)
-        Sigma_em_dict[date]["Omega"] = block_diag(Omega_factors_prev, Omega_added_factors)
-        Sigma_em_dict[date]["F_original"] = F_factors
-        Sigma_em_dict[date]["Omega_original"] = Omega_factors_prev
-        Sigma_em_dict[date]["F_added"] = F_added_factors_prev
-        Sigma_em_dict[date]["C_rr"] = C_rr
+        Sigma_em_dict[date]["F"] = pd.DataFrame(np.hstack([F_factors @ Omega_factors_prev_sqrt, F_added_factors_prev]), 
+                                                index=df_returns.columns, 
+                                                columns=Sigma_dict[date]['F'].columns.tolist() + [f"Added Factor {i+1}" for i in range(F_added_factors_prev.shape[1])])
+        Sigma_em_dict[date]["D"] = pd.Series(D_prev, index=df_returns.columns)
+        Sigma_em_dict[date]["Sigma"] = pd.DataFrame(Sigma_em_dict[date]["F"].to_numpy() @ Sigma_em_dict[date]["F"].to_numpy().T + np.diag(D_prev))
+        Sigma_em_dict[date]["Omega"] = pd.DataFrame(block_diag(Omega_factors_prev, Omega_added_factors), 
+                                                    index=Sigma_em_dict[date]["F"].columns, 
+                                                    columns=Sigma_em_dict[date]["F"].columns)
+        Sigma_em_dict[date]["F_original"] = Sigma_dict[date]['F']
+        Sigma_em_dict[date]["Omega_original"] = pd.DataFrame(Omega_factors_prev, 
+                                                            index=Sigma_dict[date]['F'].columns, 
+                                                            columns=Sigma_dict[date]['F'].columns)
+        Sigma_em_dict[date]["F_added"] = pd.DataFrame(F_added_factors_prev,
+                                                    index=df_returns.columns,
+                                                    columns=[f"Added Factor {i+1}" for i in range(F_added_factors_prev.shape[1])])
+        Sigma_em_dict[date]["C_rr"] = pd.DataFrame(C_rr, index=df_returns.columns, columns=df_returns.columns)
         Sigma_em_dict[date]["neg_log_likes"] = neg_log_likes
         Sigma_em_dict[date]["frobs"] = frobs
 

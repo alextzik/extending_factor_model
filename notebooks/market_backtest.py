@@ -30,7 +30,7 @@ def _():
     import plotly.graph_objects as go
     import pickle
 
-    from extending_factor_model.backtester import run_multiple_backtests, covariances_by_EIG, covariances_by_KL, extending_covariances_by_KL
+    from extending_factor_model.markowitz.backtester import run_multiple_backtests
     from extending_factor_model.plots import (
         plot_multi_nav,
         plot_multi_cumulative,
@@ -39,7 +39,7 @@ def _():
 
     # Constants (defined once; not re-defined in later cells)
     UNIVERSE_SIZE = 500
-    YEARS = 2
+    YEARS = 15
     TODAY = dt.date.today()
     START_DATE = TODAY - dt.timedelta(days=252 * YEARS + 30)  # buffer
     INITIAL_CAPITAL = 1_000_000.0
@@ -56,9 +56,9 @@ def _():
     return (
         INITIAL_CAPITAL,
         OPT_PARAMS,
+        START_DATE,
+        TODAY,
         UNIVERSE_SIZE,
-        covariances_by_KL,
-        extending_covariances_by_KL,
         mo,
         np,
         pd,
@@ -69,6 +69,7 @@ def _():
         plt,
         px,
         run_multiple_backtests,
+        yf,
     )
 
 
@@ -100,36 +101,36 @@ def _(UNIVERSE_SIZE, mo, pd):
         universe = fallback[:UNIVERSE_SIZE]
         source_note = f"(Fallback static subset {len(universe)} tickers)"
     mo.md(f"### Universe Size: {len(universe)} {source_note}")
-    return
+    return (universe,)
 
 
 @app.cell
-def _(mo, pickle):
-    # with mo.status.spinner(f"Downloading OHLCV data for {len(universe)} tickers …"):
-    #     px_data = yf.download(
-    #         universe,
-    #         start=START_DATE,
-    #         end=TODAY,
-    #         auto_adjust=True,
-    #         progress=False,
-    #         group_by="ticker",
-    #         threads=True,
-    #     )
-    # # Extract Close prices (yfinance multi-index aware)
-    # if isinstance(px_data.columns, pd.MultiIndex):
-    #     close = px_data.xs("Close", axis=1, level=1)
-    # else:  # Single symbol edge case
-    #     close = px_data.to_frame(name=universe[0])
-    # # Drop assets with any missing data
-    # close = close.dropna(axis=1, how="any")
-    # returns_df = close.pct_change().dropna()
-    # returns_df = returns_df.fillna(0.0)
+def _(START_DATE, TODAY, mo, pd, pickle, universe, yf):
+    with mo.status.spinner(f"Downloading OHLCV data for {len(universe)} tickers …"):
+        px_data = yf.download(
+            universe,
+            start=START_DATE,
+            end=TODAY,
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+            threads=True,
+        )
+    # Extract Close prices (yfinance multi-index aware)
+    if isinstance(px_data.columns, pd.MultiIndex):
+        close = px_data.xs("Close", axis=1, level=1)
+    else:  # Single symbol edge case
+        close = px_data.to_frame(name=universe[0])
+    # Drop assets with any missing data
+    close = close.dropna(axis=1, how="any")
+    returns_df = close.pct_change().dropna()
+    returns_df = returns_df.fillna(0.0)
 
-    # with open("returns_df.pkl", "wb") as _f:
-    #     pickle.dump(returns_df, _f)
+    with open("returns_df.pkl", "wb") as _f:
+        pickle.dump(returns_df, _f)
 
-    with open("returns_df.pkl", "rb") as _f:
-        returns_df = pickle.load(_f)
+    # with open("returns_df.pkl", "rb") as _f:
+        # returns_df = pickle.load(_f)
 
     mo.md(f"Data range: **{returns_df.index.min().date()}** → **{returns_df.index.max().date()}**, final assets: **{returns_df.shape[1]}**")
     return (returns_df,)
@@ -149,14 +150,14 @@ def _(pickle):
 
 
 @app.cell
-def _(Sigmas, covariances_by_KL, returns_df):
-    Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
+def _():
+    # Sigmas["KL"]  = covariances_by_KL(returns_df, Sigmas["EIG"], 66)
     return
 
 
 @app.cell
-def _(Sigmas, extending_covariances_by_KL, returns_df):
-    Sigmas["KL_extend"]  = extending_covariances_by_KL(returns_df, Sigmas["KL"], burnin=66, H=126, num_additional_factors=5)
+def _():
+    # Sigmas["KL_extend"]  = extending_covariances_by_KL(returns_df, Sigmas["KL"], burnin=66, H=126, num_additional_factors=5)
     return
 
 
