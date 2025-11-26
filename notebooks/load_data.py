@@ -61,7 +61,7 @@ def _(asset_returns, cov_dict, extending_covariances_by_KL, halflife, horizon):
                                                     Sigma_dict=cov_dict,
                                                     burnin=2*halflife,
                                                     H=halflife,
-                                                    num_additional_factors=10)
+                                                    num_additional_factors=5)
     return (cov_extended_dict,)
 
 
@@ -82,7 +82,6 @@ def _(asset_returns, cov_dict, cov_extended_dict, horizon, np, pd, start):
         for _type in Sigmas.keys():
             _log_like = - 0.5 * _rets.T @ np.linalg.inv(Sigmas[_type].to_numpy()) @ _rets - 0.5 * np.linalg.slogdet(Sigmas[_type].to_numpy())[1]
             log_likes.loc[_date, _type] = _log_like / Sigmas[_type].to_numpy().shape[0]
-
     return (log_likes,)
 
 
