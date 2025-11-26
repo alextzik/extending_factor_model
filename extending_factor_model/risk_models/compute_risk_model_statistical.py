@@ -391,7 +391,7 @@ def extending_covariances_by_KL(
                                                     index=df_returns.columns,
                                                     columns=[f"Added Factor {i+1}" for i in range(F_added_factors_prev.shape[1])])
         Sigma_em_dict[date]["Omega_added"] = pd.DataFrame(np.eye(num_additional_factors),
-                                                    index=df_returns.columns,
+                                                    index=[f"Added Factor {i+1}" for i in range(F_added_factors_prev.shape[1])],
                                                     columns=[f"Added Factor {i+1}" for i in range(F_added_factors_prev.shape[1])])
         
         Sigma_em_dict[date]["C_rr"] = pd.DataFrame(C_rr, index=df_returns.columns, columns=df_returns.columns)
