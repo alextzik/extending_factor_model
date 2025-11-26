@@ -14,6 +14,9 @@ import numpy as np
 import pandas as pd
 import cvxpy as cp
 
+from scipy.linalg import eigh
+
+
 ####################################################
 # Risk Model from Factor Returns
 def compute_risk_model_given_factor_returns(
@@ -66,6 +69,12 @@ def compute_risk_model_given_factor_returns(
         pd.Series: Specific risk diagonal matrix (D).
                         Asset 1  ...  Asset n
 
+        pd.DataFrame: F @ Omega_sqrt
+                        Factor 1  ...  Factor m
+        Asset 1
+        ...
+        Asset n
+
         pd.DataFrame: residual returns
                         Asset 1  ...  Asset n
         Index   
@@ -117,7 +126,16 @@ def compute_risk_model_given_factor_returns(
     weighted_residuals = residuals_np * np.sqrt(weights)
     D = pd.Series(np.sum(weighted_residuals**2, axis=0), index=asset_returns.columns)
 
-    return F, Omega, D, residuals_df
+    # Compute F @ Omega_sqrt
+    # Store results
+    L, U = eigh(Omega.values)
+    Omega_factors_sqrt = U @ np.diag(np.sqrt(np.maximum(L, 0.)))
+
+    F_Omega_sqrt = pd.DataFrame(F.values @ Omega_factors_sqrt,
+                                index=asset_returns.columns,
+                                columns=factor_returns.columns)
+
+    return F, Omega, D, F_Omega_sqrt, residuals_df
 
 
 ####################################################
@@ -160,7 +178,7 @@ def compute_risk_models_over_time_given_factor_returns(
         window_asset_returns = asset_returns.loc[start_date:end_date]
         window_factor_returns = factor_returns.loc[start_date:end_date]
 
-        F, Omega, D, _ = compute_risk_model_given_factor_returns(
+        F, Omega, D, F_Omega_sqrt, _ = compute_risk_model_given_factor_returns(
             window_asset_returns, window_factor_returns, halflife
         )
 
@@ -168,6 +186,7 @@ def compute_risk_models_over_time_given_factor_returns(
             "F": F,
             "Omega": Omega,
             "D": D,
+            "F_Omega_sqrt": F_Omega_sqrt,
             "Sigma": pd.DataFrame(F.values @ Omega.values @ F.values.T + np.diag(D.values), 
                                   index=asset_returns.columns, 
                                   columns=asset_returns.columns),
