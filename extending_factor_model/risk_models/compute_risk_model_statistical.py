@@ -104,8 +104,8 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
     # 4. Get covariances
     covariances = {}
     for t in range(T):
-        D_t = np.diag(vol_ewma[t])
-        R_t = stand_covs[t]
+        D_t = np.diag(np.nan_to_num(vol_ewma[t], nan=0.0))
+        R_t = np.nan_to_num(stand_covs[t], nan=0.0)
         cov_t = D_t @ R_t @ D_t
 
         D = np.sqrt(np.diag(cov_t))
@@ -128,7 +128,7 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
                                                             columns=pd.Index([f"Factor {i+1}" for i in range(F_cov.shape[1])]))
         
             covariances[df_returns.index[t]]["D"] = pd.Series(D_cov, index=df_returns.columns)
-            covariances[df_returns.index[t]]["Sigma"] = pd.DataFrame(F_cov.values @ F_cov.values.T + np.diag(D_cov),
+            covariances[df_returns.index[t]]["Sigma"] = pd.DataFrame(F_cov @ F_cov.T + np.diag(D_cov),
                                                     index=df_returns.columns,
                                                     columns=df_returns.columns)
     return covariances

@@ -23,7 +23,7 @@ def compute_risk_model_given_factor_returns(
     asset_returns: pd.DataFrame,
     factor_returns: pd.DataFrame,
     halflife: int = 126,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.DataFrame, pd.DataFrame]:
     """
     We compute a risk model given factor returns:
 
