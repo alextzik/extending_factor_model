@@ -230,7 +230,7 @@ def covariances_by_KL(
 def extending_covariances_by_KL(
         df_returns: pd.DataFrame, 
         Sigma_dict: dict, 
-        burnin:int, 
+        burnin:int=252, 
         H:int=126, 
         num_additional_factors:int=5) -> dict:
     """
@@ -267,7 +267,7 @@ def extending_covariances_by_KL(
         raise ValueError("Each entry in Sigma_dict must contain keys 'F', 'Omega', 'D', and 'Sigma'")
     
     ### Initializations
-    Sigma_em_dict = deepcopy(Sigma_dict)
+    Sigma_em_dict = {}
     beta = _beta_from_half_life(H)
 
     ### Get IEWMA covariances as starting point

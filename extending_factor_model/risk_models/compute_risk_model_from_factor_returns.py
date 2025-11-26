@@ -122,10 +122,11 @@ def compute_risk_model_given_factor_returns(
 
 ####################################################
 # Compute risk models over time
-def compute_risk_models_over_time(
+def compute_risk_models_over_time_given_factor_returns(
     asset_returns: pd.DataFrame,
     factor_returns: pd.DataFrame,
     halflife: int = 63,
+    burnin: int = 126,
 ) -> dict:
     """
     Compute causal risk models over time using a rolling window approach.
@@ -153,7 +154,7 @@ def compute_risk_models_over_time(
     cov_dict = {}
     dates = asset_returns.index
 
-    for end_date in dates[2*halflife:]:
+    for end_date in dates[burnin:]:
         print(f"Computing risk model for date {end_date}")
         start_date = max(dates[0], end_date - pd.Timedelta(days=3*halflife))
         window_asset_returns = asset_returns.loc[start_date:end_date]
