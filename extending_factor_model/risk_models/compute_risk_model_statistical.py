@@ -128,10 +128,9 @@ def covariances_by_EIG(df_returns, Hvol=42, Hcor=126, rank=10) -> dict:
                                                             columns=pd.Index([f"Factor {i+1}" for i in range(F_cov.shape[1])]))
         
             covariances[df_returns.index[t]]["D"] = pd.Series(D_cov, index=df_returns.columns)
-            covariances[df_returns.index[t]]["Omega"] = pd.DataFrame(np.eye(F_cov.shape[1]), 
-                                                                     index=pd.Index([f"Factor {i+1}" for i in range(F_cov.shape[1])]), 
-                                                                     columns=pd.Index([f"Factor {i+1}" for i in range(F_cov.shape[1])]))
-
+            covariances[df_returns.index[t]]["Sigma"] = pd.DataFrame(F_cov.values @ F_cov.values.T + np.diag(D_cov),
+                                                    index=df_returns.columns,
+                                                    columns=df_returns.columns)
     return covariances
 
 def covariances_by_KL(
@@ -230,9 +229,6 @@ def covariances_by_KL(
                                                             columns=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]))
         
         Sigma_em_dict[date]["D"] = pd.Series(D_prev, index=df_returns.columns)
-        Sigma_em_dict[date]["Omega"] = pd.DataFrame(np.eye(F_prev.shape[1]), 
-                                                            index=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]), 
-                                                            columns=pd.Index([f"Factor {i+1}" for i in range(F_prev.shape[1])]))
         Sigma_em_dict[date]["Sigma"] = pd.DataFrame(F_prev @ F_prev.T + np.diag(D_prev), 
                                                     index=df_returns.columns, 
                                                     columns=df_returns.columns)
@@ -383,7 +379,7 @@ def extending_covariances_by_KL(
                                                     index=Sigma_em_dict[date]["F"].columns, 
                                                     columns=Sigma_em_dict[date]["F"].columns)
         Sigma_em_dict[date]["D"] = pd.Series(D_prev, index=df_returns.columns)
-        Sigma_em_dict[date]["Sigma"] = pd.DataFrame(Sigma_em_dict[date]["F"].to_numpy() @ Sigma_em_dict[date]["F"].to_numpy().T + np.diag(D_prev),
+        Sigma_em_dict[date]["Sigma"] = pd.DataFrame(Sigma_em_dict[date]["F"].to_numpy() @ Sigma_em_dict[date]["Omega"].to_numpy() @ Sigma_em_dict[date]["F"].to_numpy().T + np.diag(D_prev),
                                                     index=df_returns.columns,
                                                     columns=df_returns.columns)
         
