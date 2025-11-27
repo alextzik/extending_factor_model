@@ -30,7 +30,7 @@ def load_factor_data(start_date: str = "1995-01-01", end_date: str = "2025-01-01
         pd.DataFrame: Factor data with columns for each factor and index for dates.
     """
     factor_dir = Path("data/raw/factors")
-    factors = ["Mom", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "LT_Rev", "ST_Rev"]
+    factors = ["Mom", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "LT_Rev", "ST_Rev", "RF"]
 
     factor_dfs = []
     for file in factor_dir.glob("*.csv"):
