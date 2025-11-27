@@ -12,15 +12,14 @@ import pandas as pd
 def markowitz_problem(
     alpha: pd.Series,
     covariance_matrix: dict,
-    portfolio_value: float,
+    prev_cash: float,
     prev_holdings: pd.Series,
     params:dict={
-        "long_only": True,
-        "leverage_limit": 2.0,
         "target_vol": 0.07,
-        "turnover_ann": 2000.0,  # annualized turnover in percentage
+        "leverage": 1.6, 
+        "w_min": 0.001,
+        "w_max": 0.0015,
     },
-    grad_bool: bool = False,
 ) -> Dict[str, Any]:
     """
     Set up and solve the convex Markowitz portfolio optimization problem.
@@ -37,23 +36,12 @@ def markowitz_problem(
         Low rank factor F
         Diagonal vector D
         total covariance Sigma
-    portfolio_value : float
-        Total portfolio value 
+    prev_cash : float
+        Previous cash position
     prev_holdings : pd.Series
         Previous portfolio holdings (n_assets,)
     params : dict
         Dictionary of optimization parameters:
-    
-        long_only : bool
-            If True, constrain weights to be non-negative (default: True)
-        leverage_limit : float
-            Maximum sum of absolute weights
-        target_vol : float
-            Target portfolio volatility (standard deviation) annualized
-        turnover_ann : float
-            Maximum annualized turnover in percentage (e.g., 2000 for 2000%)
-    grad_bool : bool
-        If True, set up the problem for gradient computation using cvxpylayers.
 
     Assumptions
         The optimization variables are in weight space, i.e., fractions of cash value.
@@ -63,74 +51,78 @@ def markowitz_problem(
     dict
         Dictionary containing:
         - 'holdings': optimal portfolio holdings (pd.Series)
-        - 'expected_return': expected portfolio return (float)
+        - "trades": optimal trades (pd.Series)
         - 'variance': portfolio variance (float)
         - 'volatility': portfolio standard deviation (float)
         - 'objective_value': optimal objective value (float)
         - 'status': solver status (str)
-        - 'problem': the cvxpy Problem object for advanced usage
 
     """
-    n_assets = len(alpha.index)
+    n_assets = len(prev_holdings.index)
+    portfolio_value = prev_cash + prev_holdings.sum()
     
     # Validate inputs
-    # Expect a dict with keys 'Sigma','F','D'
-    if not all(k in covariance_matrix for k in ("Sigma","F","D")):
-        raise ValueError("covariance_matrix must contain keys 'Sigma','F','D'")
-    Sigma = covariance_matrix['Sigma']
-    if Sigma.shape != (n_assets, n_assets):
+    # Expect a dict with keys 'F_Omega_sqrt','D'
+    if not all(k in covariance_matrix for k in ("F_Omega_sqrt","D")):
+        raise ValueError("covariance_matrix must contain keys 'F_Omega_sqrt','D'")
+
+    F_Omega_sqrt = covariance_matrix['F_Omega_sqrt']
+    if F_Omega_sqrt.shape[0] != n_assets:
         raise ValueError(
-            f"Covariance matrix shape {Sigma.shape} does not match number of assets {n_assets}"
+            f"Covariance matrix shape {F_Omega_sqrt.shape} does not match number of assets {n_assets}"
         )
+
+    D = covariance_matrix['D']
+    if D.shape != (n_assets,):
+        raise ValueError(
+            f"Diagonal vector shape {D.shape} does not match number of assets {n_assets}"
+        )
+    
+    F_Omega_sqrt = F_Omega_sqrt.reindex(prev_holdings.index).to_numpy()
+    D = D.reindex(prev_holdings.index).to_numpy()
 
     # Define optimization variables for holdings and trades in weight space
     w = cp.Variable(n_assets) # next holdings
     z = cp.Variable(n_assets) # trades
+    w_cash = cp.Variable()  # cash position
+    z_cash = cp.Variable()  # cash trade
     
-    # Portfolio return-like term
-    alpha_cp = cp.Parameter(n_assets)
-    alpha_cp.value = alpha.values
-    portfolio_return = alpha_cp @ w
-    
-    # Portfolio variance (risk)
-    F = covariance_matrix['F']
-    D = covariance_matrix['D']
     # variance decomposition: F F' + diag(D)
-    portfolio_variance = cp.sum_squares(F.T @ w) + cp.sum_squares(cp.multiply(np.sqrt(D), w))
+    portfolio_variance = 252*(    cp.sum_squares(F_Omega_sqrt.T @ w) + cp.sum_squares(cp.multiply(np.sqrt(D), w))   )
     
     # Objective
-    objective = portfolio_return 
+    objective = portfolio_variance 
     
     # Constraints
     constraints = []
-    # Long-only constraint
-    if params["long_only"]:
-        constraints += [w >= 0.]
-    else: # long-short
-        constraints += [cp.sum(w) == 0.]
-    constraints += [w == prev_holdings.values / portfolio_value + z]  # Holdings update
-    constraints += [cp.sum(cp.abs(w)) <= params["leverage_limit"]]  # Leverage constraint
-    constraints += [252*portfolio_variance <= params["target_vol"]**2]  # Target volatility
+    constraints += [cp.sum(w) + w_cash== 1.]
+    constraints += [w == prev_holdings.values / portfolio_value + z,
+                    w_cash == prev_cash / portfolio_value + z_cash]  # Holdings update
+    constraints += [cp.sum(cp.abs(w)) <= params["leverage"]]  # Leverage constraint
+    constraints += [w >= params["w_min"]]  # Minimum weight constraint
+    constraints += [w <= params["w_max"]]  # Maximum weight constraint
     # constraints += [0.5*cp.norm(z, 1) <= params["turnover_ann"] / 252 / 100] # Turnover constraint (annualized, in %)
 
     # Define and solve the problem
-    problem = cp.Problem(cp.Maximize(objective), constraints)
+    problem = cp.Problem(cp.Minimize(objective), constraints)
     problem.solve(solver_path=["CLARABEL", "SCS"])
         
     # Set optimal next holdings and trades
     optimal_holdings = w.value
     optimal_trades = z.value
+    optimal_cash = w_cash.value 
 
     # Calculate portfolio statistics
-    portfolio_var = 252*portfolio_variance.value
+    portfolio_var = portfolio_variance.value
     portfolio_vol = np.sqrt(portfolio_var)
 
     # Compute Jacobian of optimal weights w.r.t. alpha
     assert problem.is_dpp()
 
     return {
-        'holdings': pd.Series(optimal_holdings * portfolio_value, index=alpha.index),
-        'trades': pd.Series(optimal_trades * portfolio_value, index=alpha.index),
+        'holdings': pd.Series(optimal_holdings * portfolio_value, index=prev_holdings.index),
+        'trades': pd.Series(optimal_trades * portfolio_value, index=prev_holdings.index),
+        'cash' : optimal_cash * portfolio_value,
         'variance': portfolio_var,
         'volatility': portfolio_vol,
         'objective_value': problem.value,

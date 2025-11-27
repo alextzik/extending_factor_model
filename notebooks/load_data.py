@@ -104,15 +104,20 @@ def _(log_likes, np):
 
 
 @app.cell
-def _(cov_dict):
-    date = list(cov_dict.keys())[200]
-    252*cov_dict[date]["D"]
-    return (date,)
+def _(cov_dict, cov_extended_dict):
+    import pickle 
+
+    with open("basic_risk_model.pkl", "wb") as _f:
+        pickle.dump(cov_dict, _f)
+
+    with open("extended_risk_model.pkl", "wb") as _f:
+        pickle.dump(cov_extended_dict, _f)    
+    return
 
 
 @app.cell
-def _(cov_extended_dict, date):
-    252*cov_extended_dict[date]["D"]
+def _(cov_dict):
+    cov_dict[list(cov_dict.keys())[100]]
     return
 
 

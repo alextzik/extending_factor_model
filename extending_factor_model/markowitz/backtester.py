@@ -10,8 +10,7 @@ import numpy as np
 import pandas as pd
 from typing import Callable, Optional, Dict, Any, Iterable
 from .portfolio_optimizer import markowitz_problem
-from scipy.sparse.linalg import svds
-from scipy.linalg import block_diag, eigh
+from extending_factor_model.risk_models.compute_risk_model_statistical import _ewma_series, _beta_from_half_life
 from copy import deepcopy
 
 ####################################################
@@ -23,10 +22,10 @@ def run_backtest(
     initial_capital: float = 1_000_000.0,
     start_date: pd.Timestamp=None,
     markowitz_pars: dict = {
-        "long_only": True,
-        "leverage_limit": 2.0,
         "target_vol": 0.07,
-        "turnover_ann": 2000.
+        "leverage": 1.6, 
+        "w_min": 0.01,
+        "w_max": 0.015,
     }
 ) -> Dict[str, Any]:
     """
@@ -75,11 +74,12 @@ def run_backtest(
     if not isinstance(returns, pd.DataFrame):
         raise ValueError("returns must be a pandas DataFrame")
     # Ensure alphas index equals returns index
-    if not all(alphas.index.isin(returns.index)):
-        raise ValueError("Alphas index must be in returns index")
-    # Ensure assets match
-    if not (returns.columns == alphas.columns).all():
-        raise ValueError("returns and alphas must have the same columns (assets)")
+    if alphas is not None:
+        if not all(alphas.index.isin(returns.index)):
+            raise ValueError("Alphas index must be in returns index")
+        # Ensure assets match
+        if not (returns.columns == alphas.columns).all():
+            raise ValueError("returns and alphas must have the same columns (assets)")
     
     # Constants
     asset_names = returns.columns
@@ -91,58 +91,51 @@ def run_backtest(
     turnover_history = []
 
     # Set initial portfolio
-    cash_value = initial_capital
+    cash_value = 0.0
+    current_holdings = pd.Series(initial_capital / len(asset_names), index=asset_names)
     portfolio_value = initial_capital
-    current_holdings = pd.Series(0.0, index=asset_names)
     portfolio_values.append(portfolio_value)
-    portfolio_returns.append(0.0)
     portfolio_holdings_history.append(current_holdings.to_numpy().copy())
     turnover_history.append(0.0)
 
     # Get dates to backtest
     # Ensure chronological order and apply burn-in
-    if start_date is not None:
-        dates_to_backtest = returns.index[returns.index >= start_date].sort_values()
-    else:
-        dates_to_backtest = returns.index.sort_values()[128:]
+    dates_to_backtest = list(risk_models.keys())
 
     for date, next_date in zip(dates_to_backtest[:-1], dates_to_backtest[1:]):
 
-        Sigma_t = risk_models[date]  # dict with Sigma,F,D
+        Sigma_t = risk_models[date]  # dict with risk model per date
 
         ############################################################
         # Solve Markowitz
         markowitz_output = markowitz_problem(
-            alpha=alphas.loc[date],
+            alpha=alphas.loc[date] if alphas is not None else None,
             covariance_matrix=Sigma_t,
-            portfolio_value=portfolio_value,
+            prev_cash=cash_value,
             prev_holdings=current_holdings,
             params=markowitz_pars,
-            grad_bool=True
         )
 
         ############################################################
         current_holdings = markowitz_output['holdings']
         trades = markowitz_output['trades']
+        cash_value = markowitz_output["cash"]
 
         # Update portfolio value and weights
         asset_returns = returns.loc[next_date]
         current_holdings = (1 + asset_returns) * current_holdings
-        cash_value -= trades.sum()
         portfolio_value = cash_value + current_holdings.sum()
 
         # Record
         portfolio_values.append(portfolio_value)
-        denom = cash_value + current_holdings.sum()
+        denom = portfolio_value
         denom = denom if denom != 0 else 1.0
-        portfolio_return = (current_holdings * asset_returns).sum() / denom
-        portfolio_returns.append(portfolio_return)
         portfolio_holdings_history.append(current_holdings.to_numpy().copy())
         turnover_history.append(np.abs(trades).sum() / denom * 252 * 100)
 
     # Metrics
     portfolio_values_series = pd.Series(portfolio_values, index=dates_to_backtest)
-    portfolio_returns_series = pd.Series(portfolio_returns, index=dates_to_backtest)
+    portfolio_returns_series = portfolio_values_series.pct_change().dropna()
     holdings_df = pd.DataFrame(portfolio_holdings_history, index=dates_to_backtest, columns=asset_names)
 
     total_return = (portfolio_value - initial_capital) / initial_capital
@@ -221,8 +214,8 @@ def run_multiple_backtests(
             cfg = dict(cfg)  # shallow copy
             r = cfg.pop('returns', shared_returns)
             a = cfg.pop('alphas', shared_alphas)
-            if r is None or a is None:
-                raise ValueError(f"Missing returns or alphas for portfolio '{name}'.")
+            if r is None:
+                raise ValueError(f"Missing returns for portfolio '{name}'.")
             if progress_callback:
                 progress_callback(name)
             results[name] = run_backtest(returns=r, alphas=a, **cfg)
@@ -237,8 +230,8 @@ def run_multiple_backtests(
         cfg_copy = dict(cfg)
         r = cfg_copy.pop('returns', shared_returns)
         a = cfg_copy.pop('alphas', shared_alphas)
-        if r is None or a is None:
-            raise ValueError(f"Missing returns or alphas for portfolio '{name}'.")
+        if r is None:
+            raise ValueError(f"Missing returns for portfolio '{name}'.")
         tasks.append((name, r, a, cfg_copy))
 
     def _run_one(name, r, a, cfg_local):
@@ -250,13 +243,3 @@ def run_multiple_backtests(
         delayed(_run_one)(name, r, a, cfg_local) for (name, r, a, cfg_local) in tasks
     )
     return {name: res for name, res in parallel_results}
-
-
-def zscore(x, eps=1e-8):
-    """
-        Differentiable z-score normalization of 1D tensors.
-    
-    """
-    mean = x.mean()
-    std = x.std() + eps
-    return (x - mean) / std
