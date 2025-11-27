@@ -49,7 +49,7 @@ def _():
 
     # Optimizer parameter defaults
     OPT_PARAMS = {
-            "target_vol": 0.07,
+            "target_vol": 0.08,
             "leverage": 1.6, 
             "w_min": 0.001,
             "w_max": 0.0015,

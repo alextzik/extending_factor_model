@@ -91,16 +91,16 @@ def markowitz_problem(
     portfolio_variance = 252*(    cp.sum_squares(F_Omega_sqrt.T @ w) + cp.sum_squares(cp.multiply(np.sqrt(D), w))   )
     
     # Objective
-    objective = portfolio_variance 
+    objective = w_cash
     
     # Constraints
-    constraints = []
+    constraints = [portfolio_variance <= params["target_vol"]**2]
     constraints += [cp.sum(w) + w_cash== 1.]
     constraints += [w == prev_holdings.values / portfolio_value + z,
                     w_cash == prev_cash / portfolio_value + z_cash]  # Holdings update
     constraints += [cp.sum(cp.abs(w)) <= params["leverage"]]  # Leverage constraint
-    constraints += [w >= params["w_min"]]  # Minimum weight constraint
-    constraints += [w <= params["w_max"]]  # Maximum weight constraint
+    # constraints += [w >= params["w_min"]]  # Minimum weight constraint
+    # constraints += [w <= params["w_max"]]  # Maximum weight constraint
     # constraints += [0.5*cp.norm(z, 1) <= params["turnover_ann"] / 252 / 100] # Turnover constraint (annualized, in %)
 
     # Define and solve the problem
