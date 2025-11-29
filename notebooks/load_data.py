@@ -87,6 +87,16 @@ def _(asset_returns, cov_dict, extending_covariances_by_KL, halflife, horizon):
 
 
 @app.cell
+def _(cov_dict, cov_extended_dict, pickle):
+    with open("basic_risk_model.pkl", "wb") as _f:
+        pickle.dump(cov_dict, _f)
+
+    with open("extended_risk_model.pkl", "wb") as _f:
+        pickle.dump(cov_extended_dict, _f)    
+    return
+
+
+@app.cell
 def _(cov_extended_dict):
     cov_extended_dict.keys()
     return
@@ -144,16 +154,6 @@ def _(log_likes):
 @app.cell
 def _(log_likes, np):
     log_likes.resample("6ME").std().div(np.sqrt(log_likes.resample("6ME").size()), axis=0)
-    return
-
-
-@app.cell
-def _(cov_dict, cov_extended_dict, pickle):
-    with open("basic_risk_model.pkl", "wb") as _f:
-        pickle.dump(cov_dict, _f)
-
-    with open("extended_risk_model.pkl", "wb") as _f:
-        pickle.dump(cov_extended_dict, _f)    
     return
 
 
