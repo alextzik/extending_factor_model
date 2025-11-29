@@ -50,7 +50,7 @@ def _():
     # Optimizer parameter defaults
     OPT_PARAMS = {
             "target_vol": 0.08,
-            "leverage": 1.6, 
+            "leverage": 1.3, 
             "w_min": 0.001,
             "w_max": 0.0015,
         }
@@ -61,13 +61,11 @@ def _():
         OPT_PARAMS,
         START_DATE,
         mo,
-        np,
         pd,
         pickle,
         plot_ewma_vol,
         plot_multi_cumulative,
         plot_multi_nav,
-        plt,
         px,
         returns_df,
         run_multiple_backtests,
@@ -85,17 +83,6 @@ def _(pickle):
     with open("extended_risk_model.pkl", "rb") as _f:
         Sigmas["extend"] = pickle.load(_f)
     return (Sigmas,)
-
-
-@app.cell
-def _(Sigmas, np, plt, returns_df):
-    date = returns_df.index[280]
-    Sigma = Sigmas["extend"][date]
-
-    plt.scatter(np.diag(Sigma["C_rr"]), np.diag(Sigma["Sigma"]))
-    plt.plot(np.diag(Sigma["Sigma"]), np.diag(Sigma["Sigma"]), linestyle="--", color="r")
-    plt.show()
-    return
 
 
 @app.cell

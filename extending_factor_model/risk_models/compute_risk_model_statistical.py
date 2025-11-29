@@ -295,35 +295,42 @@ def extending_covariances_by_KL(
     _init_date = df_returns.index.unique()[burnin]
     num_factors = Sigma_dict[_init_date]['F'].shape[1]
     num_assets = Sigma_dict[_init_date]['F'].shape[0]
-    num_iters = 300
+
+    C_rr = IEWMA_returns[_init_date]
+    F_factors = Sigma_dict[_init_date]['F'].to_numpy()
+
+    # Find initial F_added_factors
+    R = df_returns.loc[:_init_date].values.T
+    S_factors = np.linalg.lstsq(F_factors, R, rcond=None)[0]
+    residuals = R - F_factors @ S_factors
+    U, S, Vt = svds(residuals, k=num_additional_factors)
+    F_added_factors_prev = U @ np.diag(np.sqrt(S))
+
+    # Set total F_prev
+    F_prev = np.hstack([F_factors, F_added_factors_prev])
+
+    # Set Omega_factors_prev
+    Omega_factors_prev = Sigma_dict[_init_date]['Omega'].to_numpy()
+    Omega_inv_prev = block_diag( np.linalg.inv(Omega_factors_prev), Omega_added_factors_inv )
+
+    # Set initial D_prev
+    D_prev = Sigma_dict[_init_date]['Sigma'].to_numpy() - (F_factors @ Omega_factors_prev @ F_factors.T + F_added_factors_prev @ F_added_factors_prev.T)
+    D_prev = np.diag(D_prev)
+    D_prev = np.maximum(D_prev, 1e-4*np.max(Sigma_dict[_init_date]["D"].to_numpy()))
+    inv_D_prev = 1 / D_prev
+
+    G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
+
 
     for date in df_returns.index.unique()[burnin:]:
 
+        if date == _init_date:
+            num_iters = 1_000
+        else:
+            num_iters = 100
+
         C_rr = IEWMA_returns[date]
-
         F_factors = Sigma_dict[date]['F'].to_numpy()
-
-        # Find initial F_added_factors
-        R = df_returns.loc[:date].values.T
-        S_factors = np.linalg.lstsq(F_factors, R, rcond=None)[0]
-        residuals = R - F_factors @ S_factors
-        U, S, Vt = svds(residuals, k=num_additional_factors)
-        F_added_factors_prev = U @ np.diag(np.sqrt(S))
-
-        # Set total F_prev
-        F_prev = np.hstack([F_factors, F_added_factors_prev])
-
-        # Set Omega_factors_prev
-        Omega_factors_prev = Sigma_dict[date]['Omega'].to_numpy()
-        Omega_inv_prev = block_diag( np.linalg.inv(Omega_factors_prev), Omega_added_factors_inv )
-
-        # Set initial D_prev
-        D_prev = Sigma_dict[date]['Sigma'].to_numpy() - (F_factors @ Omega_factors_prev @ F_factors.T + F_added_factors_prev @ F_added_factors_prev.T)
-        D_prev = np.diag(D_prev)
-        D_prev = np.maximum(D_prev, 1e-4*np.max(np.diag(Sigma_dict[date]["D"].to_numpy())))
-        inv_D_prev = 1 / D_prev
-
-        G_prev = np.linalg.inv( F_prev.T * inv_D_prev[None, :] @ F_prev + Omega_inv_prev )
 
         # Store log likelihoods and frobenius norms
         neg_log_likes = []

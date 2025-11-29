@@ -21,6 +21,7 @@ def _():
         load_factor_data,
         np,
         pd,
+        plt,
     )
 
 
@@ -30,6 +31,12 @@ def _():
     start = 300
     halflife = 63
     return halflife, horizon, start
+
+
+@app.cell
+def _(factor_returns):
+    factor_returns
+    return
 
 
 @app.cell
@@ -49,10 +56,10 @@ def _(
 
     cov_dict = compute_risk_models_over_time_given_factor_returns(
         asset_returns=asset_returns.iloc[:horizon], 
-        factor_returns=factor_returns.iloc[:horizon],
+        factor_returns=factor_returns.iloc[:horizon], # ["Mkt-RF", "SMB", "HML"]
         halflife=halflife,
         burnin=2*halflife)
-    return asset_returns, cov_dict
+    return asset_returns, cov_dict, factor_returns
 
 
 @app.cell
@@ -61,8 +68,25 @@ def _(asset_returns, cov_dict, extending_covariances_by_KL, halflife, horizon):
                                                     Sigma_dict=cov_dict,
                                                     burnin=2*halflife,
                                                     H=halflife,
-                                                    num_additional_factors=5)
+                                                    num_additional_factors=3)
     return (cov_extended_dict,)
+
+
+@app.cell
+def _(cov_extended_dict):
+    cov_extended_dict.keys()
+    return
+
+
+@app.cell
+def _(cov_extended_dict, np, plt):
+    date = list(cov_extended_dict.keys())[1300]
+    Sigma = cov_extended_dict[date]
+
+    plt.scatter(np.diag(Sigma["C_rr"]), np.diag(Sigma["Sigma"]))
+    plt.plot(np.diag(Sigma["Sigma"]), np.diag(Sigma["Sigma"]), linestyle="--", color="r")
+    plt.show()
+    return
 
 
 @app.cell
@@ -83,6 +107,12 @@ def _(asset_returns, cov_dict, cov_extended_dict, horizon, np, pd, start):
             _log_like = - 0.5 * _rets.T @ np.linalg.inv(Sigmas[_type].to_numpy()) @ _rets - 0.5 * np.linalg.slogdet(Sigmas[_type].to_numpy())[1]
             log_likes.loc[_date, _type] = _log_like / Sigmas[_type].to_numpy().shape[0]
     return (log_likes,)
+
+
+@app.cell
+def _(log_likes):
+    log_likes.mean()
+    return
 
 
 @app.cell
