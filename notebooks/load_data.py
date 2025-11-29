@@ -15,12 +15,15 @@ def _():
     import pandas as pd
     import numpy as np
     import matplotlib.pyplot as plt
+
+    import pickle 
     return (
         compute_risk_models_over_time_given_factor_returns,
         extending_covariances_by_KL,
         load_factor_data,
         np,
         pd,
+        pickle,
         plt,
     )
 
@@ -48,6 +51,8 @@ def _(
     pd,
 ):
     factor_returns = load_factor_data()
+    factors = ["Mom", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "LT_Rev", "ST_Rev"]
+    factor_returns = factor_returns[factors]
     asset_returns  = pd.read_pickle("data/processed/assets/returns_df.pkl")
 
     common_dates = factor_returns.index.intersection(asset_returns.index)
@@ -59,7 +64,16 @@ def _(
         factor_returns=factor_returns.iloc[:horizon], # ["Mkt-RF", "SMB", "HML"]
         halflife=halflife,
         burnin=2*halflife)
+
+    # with open("basic_risk_model.pkl", "rb") as _f:
+    #     cov_dict = pickle.load(_f)
     return asset_returns, cov_dict, factor_returns
+
+
+@app.cell
+def _(factor_returns):
+    factor_returns
+    return
 
 
 @app.cell
@@ -134,9 +148,7 @@ def _(log_likes, np):
 
 
 @app.cell
-def _(cov_dict, cov_extended_dict):
-    import pickle 
-
+def _(cov_dict, cov_extended_dict, pickle):
     with open("basic_risk_model.pkl", "wb") as _f:
         pickle.dump(cov_dict, _f)
 
