@@ -115,11 +115,5 @@ def _(cov_dict, cov_extended_dict):
     return
 
 
-@app.cell
-def _(cov_dict):
-    cov_dict[list(cov_dict.keys())[100]]
-    return
-
-
 if __name__ == "__main__":
     app.run()

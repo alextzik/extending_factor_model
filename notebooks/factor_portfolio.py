@@ -59,7 +59,7 @@ def _(cp, pd):
 
         objectives = []
         if alpha is not None:
-            objectives.append(alpha.values.T @ w)
+            objectives.append(w.T @ alpha.values)
         else:
             objectives.append( - w[-1])
 
@@ -80,18 +80,25 @@ def _(cp, pd):
 
 
 @app.cell
-def _(factor_returns, np, pd):
+def _(factor_returns):
+    alphas = 252*factor_returns.rolling(512).mean().dropna()
+    alphas["cash"] = 0.
+    return (alphas,)
+
+
+@app.cell
+def _(alphas, factor_returns, np, pd):
     portfolios = {}
-    portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": pd.DataFrame(np.array([1., 1.3, 1., 0.]), index=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
-                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
+    portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": alphas[["Mkt-RF", "ST_Rev", "Mom", "cash"]],
+                                               "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
                                                "aversion": None,
-                                               "vol_tar": 0.08}
+                                               "vol_tar": 0.05}
 
     for _factor in factor_returns.columns:
-        portfolios[(_factor, "cash")] = {"alpha": None,
-                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=[_factor, "cash"]),
+        portfolios[(_factor, "cash")] = {"alpha": alphas[[_factor, "cash"]],
+                                               "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=[_factor, "cash"]),
                                                "aversion": None,
-                                               "vol_tar": 0.08}
+                                               "vol_tar": 0.05}
     return (portfolios,)
 
 
@@ -113,8 +120,8 @@ def _(
 
         holdings_out = _portfolio_pars["holdings"].copy()
 
-        for _iter, (_date, _next_date) in enumerate(zip(factor_returns.index[:-1],
-                                                        factor_returns.index[1:])):
+        for _iter, (_date, _next_date) in enumerate(zip(_portfolio_pars["holdings"].index[:-1],
+                                                        _portfolio_pars["holdings"].index[1:])):
             print(_date)
             # write holdings
             holdings_out.loc[_date] = current_holdings
@@ -132,7 +139,7 @@ def _(
                 current_trades, current_holdings = markowitz(
                     current_holdings,
                     risk_models[_next_date],
-                    _portfolio_pars["alpha"],
+                    _portfolio_pars["alpha"].loc[_next_date],
                     _portfolio_pars["vol_tar"],
                     _portfolio_pars["aversion"]
                 )
@@ -143,7 +150,7 @@ def _(
         return _portfolio_name, holdings_out
 
     # Parallel execution
-    results = Parallel(n_jobs=9, prefer="threads")(
+    results = Parallel(n_jobs=10, prefer="threads")(
         delayed(run_portfolio)(_name, _pars, factor_returns, risk_models)
         for _name, _pars in portfolios.items()
     )
@@ -160,10 +167,10 @@ def _(
 def _(np, pd, portfolios):
     def metrics(nav: pd.Series, name: str):
         nav = nav.dropna()
-        total_return = (nav[-1] - nav[0]) / nav[0]
-        total_ret_ann = 100*((nav[-1] / nav[0]) ** (252 / len(nav)) - 1)
+        total_return = (nav.iloc[-1] - nav.iloc[0]) / nav.iloc[0]
+        total_ret_ann = 100*((nav.iloc[-1] / nav.iloc[0]) ** (252 / len(nav)) - 1)
         std_return = 100*nav.pct_change().std() * np.sqrt(252)
-        sharpe_ratio = (total_ret_ann / std_return)  if std_return > 0 else 0.0
+        sharpe_ratio = (total_ret_ann / std_return)  if std_return > 1e-4 else 0.0
 
         cumulative = nav
         running_max = cumulative.expanding().max()
@@ -174,22 +181,18 @@ def _(np, pd, portfolios):
 
     factor_returns_extended = pd.concat([_portfolio_pars["holdings"].dropna().sum(axis=1).pct_change().rename(str(_portfolio_name)) for _portfolio_name, _portfolio_pars in portfolios.items()], axis=1, join="outer")
 
-    (1+factor_returns_extended).cumprod().apply(lambda x: metrics(x, x.name), axis=0).T.round(2)
-    return (factor_returns_extended,)
+    navs = (1+factor_returns_extended).cumprod()
+    joint_results = navs.apply(lambda x: metrics(x, x.name), axis=0).T.round(2).sort_values("sharpe", ascending=False)
+    joint_results
+    return factor_returns_extended, joint_results, metrics, navs
 
 
 @app.cell
-def _(factor_returns_extended, plt):
-    (1+factor_returns_extended).cumprod().plot()
+def _(navs, plt):
+    navs.plot()
     plt.yscale("log")
     plt.title("NAV")
     plt.show()
-    return
-
-
-@app.cell
-def _(factor_returns_extended):
-    factor_returns_extended.corr()
     return
 
 
@@ -198,6 +201,32 @@ def _(plt, portfolios):
     _holdings = portfolios[('Mkt-RF', 'ST_Rev', "Mom", 'cash')]["holdings"]
     _holdings.div(_holdings.sum(axis=1),axis=0).abs().plot.area(stacked=True)
     plt.title("Weights stackplot")
+    return
+
+
+@app.cell
+def _(factor_returns_extended, metrics, pd):
+    out = []
+
+    for period_end, grp in factor_returns_extended.resample("YE"):
+        year = period_end.year                      # <-- this is your year label
+        # compute metrics per portfolio
+        m = (1+grp).cumprod().apply(lambda col: metrics(col, col.name))
+        # Build MultiIndex columns = (year, metric)
+        m.index = pd.MultiIndex.from_product([[pd.to_datetime(year, format="%Y")], m.index], names=["year", "metric"])
+        out.append(m)
+
+    # Concatenate across years
+    result = pd.concat(out, axis=0) 
+    return (result,)
+
+
+@app.cell
+def _(joint_results, plt, result):
+    result[joint_results.index[:4]].xs(key="sharpe", level="metric").plot()
+    plt.title("Sharpe per year")
+    plt.axhline(0.0, linestyle="--")
+    plt.show()
     return
 
 
