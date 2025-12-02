@@ -43,7 +43,22 @@ def _(factor_returns):
 
 
 @app.cell
+def _(pd):
+    assets = pd.Index(['NEE', 'DPZ', 'WEC', 'INCY', 'MCK', 'HRL', 'FSLR', 'PFE', 'AKAM',
+           'CTRA', 'HAS', 'MKC', 'LUMN', 'BMY', 'CMG', 'HUM', 'NWL', 'NI', 'WMT',
+           'CMS', 'ETR', 'BDX', 'ABBV', 'MKTX', 'TSN', 'ED', 'DUK', 'PNW', 'HSY',
+           'MO', 'AWK', 'ENPH', 'STX', 'GILD', 'XRAY', 'PSA', 'TGT', 'XEL', 'SO',
+           'CLX', 'EIX', 'ATO', 'KMB', 'SJM', 'CAG', 'NRG', 'ORLY', 'KR', 'LNT',
+           'AAP', 'DGX', 'DG', 'K', 'DLR', 'REGN', 'CNC', 'LLY', 'EA', 'FE', 'CPB',
+           'CHTR', 'EVRG', 'ROL', 'VZ', 'NEM', 'DLTR', 'AEE', 'BF-B', 'BAX', 'LHX',
+           'VTRS', 'PODD', 'CAH', 'KDP', 'CHRW', 'DVA', 'PGR', 'CHD', 'AEP', 'LMT',
+           'TSCO', 'EXR', 'DHR', 'MRK', 'WBD'])
+    return (assets,)
+
+
+@app.cell
 def _(
+    assets,
     compute_risk_models_over_time_given_factor_returns,
     halflife,
     horizon,
@@ -60,7 +75,7 @@ def _(
     asset_returns  = asset_returns.reindex(common_dates)
 
     cov_dict = compute_risk_models_over_time_given_factor_returns(
-        asset_returns=asset_returns.iloc[:horizon], 
+        asset_returns=asset_returns.iloc[:horizon][assets], 
         factor_returns=factor_returns.iloc[:horizon], # ["Mkt-RF", "SMB", "HML"]
         halflife=halflife,
         burnin=2*halflife)
@@ -77,12 +92,19 @@ def _(factor_returns):
 
 
 @app.cell
-def _(asset_returns, cov_dict, extending_covariances_by_KL, halflife, horizon):
-    cov_extended_dict = extending_covariances_by_KL(df_returns=asset_returns.iloc[:horizon],
+def _(
+    asset_returns,
+    assets,
+    cov_dict,
+    extending_covariances_by_KL,
+    halflife,
+    horizon,
+):
+    cov_extended_dict = extending_covariances_by_KL(df_returns=asset_returns.iloc[:horizon][assets],
                                                     Sigma_dict=cov_dict,
                                                     burnin=2*halflife,
                                                     H=halflife,
-                                                    num_additional_factors=3)
+                                                    num_additional_factors=5)
     return (cov_extended_dict,)
 
 
@@ -103,25 +125,48 @@ def _(cov_extended_dict):
 
 
 @app.cell
-def _(cov_extended_dict, np, plt):
-    date = list(cov_extended_dict.keys())[1300]
+def _(date):
+    date
+    return
+
+
+@app.cell
+def _(cov_extended_dict, np, pd, plt):
+    date = pd.to_datetime("2020-03-20") #list(cov_extended_dict.keys())[1100]
     Sigma = cov_extended_dict[date]
 
     plt.scatter(np.diag(Sigma["C_rr"]), np.diag(Sigma["Sigma"]))
     plt.plot(np.diag(Sigma["Sigma"]), np.diag(Sigma["Sigma"]), linestyle="--", color="r")
     plt.show()
+    return Sigma, date
+
+
+@app.cell
+def _(Sigma, cov_dict, date, np, plt):
+    _Sigma = cov_dict[date]
+    plt.plot(np.diag(Sigma["Sigma"]), np.diag(Sigma["Sigma"]), linestyle="--", color="r")
+    plt.scatter(np.diag(Sigma["Sigma"]), np.diag(_Sigma["Sigma"]))
     return
 
 
 @app.cell
-def _(asset_returns, cov_dict, cov_extended_dict, horizon, np, pd, start):
+def _(
+    asset_returns,
+    assets,
+    cov_dict,
+    cov_extended_dict,
+    horizon,
+    np,
+    pd,
+    start,
+):
     log_likes = pd.DataFrame(np.nan, 
                             index=asset_returns.index[start:horizon-1],
                             columns=["base", "extended"])
 
     for _date, _next_date in zip(asset_returns.index[start:horizon-1], asset_returns.index[start+1:horizon]):
         print(_date)
-        _rets = asset_returns.loc[_next_date]
+        _rets = asset_returns.loc[_next_date][assets]
 
         Sigmas = {}
         Sigmas["base"] = cov_dict[_date]["Sigma"]
@@ -141,7 +186,13 @@ def _(log_likes):
 
 @app.cell
 def _(log_likes):
-    log_likes.rolling(200).mean().plot()
+    log_likes.rolling(100).mean().plot()
+    return
+
+
+@app.cell
+def _(log_likes):
+    log_likes.idxmin(axis=0)
     return
 
 
@@ -154,6 +205,21 @@ def _(log_likes):
 @app.cell
 def _(log_likes, np):
     log_likes.resample("6ME").std().div(np.sqrt(log_likes.resample("6ME").size()), axis=0)
+    return
+
+
+@app.cell
+def _(cov_extended_dict, date, np, pd):
+    _dates = list(cov_extended_dict.keys())
+    norms = pd.DataFrame(np.nan, index=_dates, columns=["orig", "added"])
+    for _d in _dates:
+        F_orig = cov_extended_dict[date]["F_Omega_sqrt"].iloc[:, :8]
+        F_new = cov_extended_dict[date]["F_Omega_sqrt"].iloc[:, 8:]
+
+        norms.loc[_d, "orig"] = np.linalg.norm(F_orig)
+        norms.loc[_d, "added"] = np.linalg.norm(F_new)
+
+    norms.plot()
     return
 
 

@@ -56,10 +56,21 @@ def _():
         }
 
     np.random.seed(42)
+
+    assets = pd.Index(['NEE', 'DPZ', 'WEC', 'INCY', 'MCK', 'HRL', 'FSLR', 'PFE', 'AKAM',
+           'CTRA', 'HAS', 'MKC', 'LUMN', 'BMY', 'CMG', 'HUM', 'NWL', 'NI', 'WMT',
+           'CMS', 'ETR', 'BDX', 'ABBV', 'MKTX', 'TSN', 'ED', 'DUK', 'PNW', 'HSY',
+           'MO', 'AWK', 'ENPH', 'STX', 'GILD', 'XRAY', 'PSA', 'TGT', 'XEL', 'SO',
+           'CLX', 'EIX', 'ATO', 'KMB', 'SJM', 'CAG', 'NRG', 'ORLY', 'KR', 'LNT',
+           'AAP', 'DGX', 'DG', 'K', 'DLR', 'REGN', 'CNC', 'LLY', 'EA', 'FE', 'CPB',
+           'CHTR', 'EVRG', 'ROL', 'VZ', 'NEM', 'DLTR', 'AEE', 'BF-B', 'BAX', 'LHX',
+           'VTRS', 'PODD', 'CAH', 'KDP', 'CHRW', 'DVA', 'PGR', 'CHD', 'AEP', 'LMT',
+           'TSCO', 'EXR', 'DHR', 'MRK', 'WBD'])
     return (
         INITIAL_CAPITAL,
         OPT_PARAMS,
         START_DATE,
+        assets,
         mo,
         pd,
         pickle,
@@ -91,6 +102,7 @@ def _(
     OPT_PARAMS,
     START_DATE,
     Sigmas,
+    assets,
     mo,
     pd,
     returns_df,
@@ -100,9 +112,9 @@ def _(
     configs = {}
     for _name, _Sigmas in Sigmas.items():
         configs[_name] = dict(
-            returns=returns_df,
+            returns=returns_df[assets],
             alphas=None,
-            risk_models=_Sigmas, 
+            risk_models={_key: _Sigmas[_key] for _key in _Sigmas.keys() if _key <pd.to_datetime("2019-01-01")}, 
             initial_capital=INITIAL_CAPITAL,
             start_date=pd.to_datetime(START_DATE),
             markowitz_pars=OPT_PARAMS,

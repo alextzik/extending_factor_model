@@ -75,9 +75,9 @@ def _(cp, pd):
             objectives.append(-10 * cp.square(w.T @ risk_model["Sigma"].loc[holdings.index, aversion].to_numpy().reshape(-1) / risk_model["Sigma"].loc[aversion, aversion]))
 
         constraints = [w == holdings.values/nav + z,
-                       w >= 0,
+                       w[:-1] >= 0,
                        cp.sum(w) == 1.,
-                       cp.sum(cp.abs(w[:-1])) <= 1.0, 
+                       cp.sum(cp.abs(w[:-1])) <= 1.3, 
                       252*cp.quad_form(w, risk_model["Sigma"].loc[holdings.index, holdings.index].to_numpy()) <= vol_ann**2]
 
         prob = cp.Problem(cp.Maximize(cp.sum(objectives)), 
@@ -92,24 +92,24 @@ def _(cp, pd):
 def _(factor_returns):
     alphas = 252*factor_returns.rolling(512).mean().dropna()
     alphas["cash"] = 0.
-    return (alphas,)
+    return
 
 
 @app.cell
-def _(alphas, factor_returns, np, pd):
+def _(factor_returns, np, pd):
     portfolios = {}
     portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": 
-                                                       pd.DataFrame(np.tile(np.array([1.0, 1.0, 1.0, 0.0]), (len(alphas.index), 1)),
-        index=alphas.index,
+                                                       pd.DataFrame(np.tile(np.array([1.0, 1.0, 1.0, 0.0]), (len(factor_returns.index), 1)),
+        index=factor_returns.index,
         columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
                                                                     #alphas[["Mkt-RF", "ST_Rev", "Mom", "cash"]],
-                                               "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
+                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
                                                "aversion": None,
                                                "vol_tar": 0.05}
 
     for _factor in factor_returns.columns:
         portfolios[(_factor, "cash")] = {"alpha": None, #alphas[[_factor, "cash"]],
-                                               "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=[_factor, "cash"]),
+                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=[_factor, "cash"]),
                                                "aversion": None,
                                                "vol_tar": 0.05}
     return (portfolios,)
