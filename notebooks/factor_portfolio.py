@@ -52,6 +52,14 @@ def _(cp, pd):
                 alpha: pd.Series,
                 vol_ann:float = 0.08,
                  aversion:str="Mom") -> tuple[pd.Series, pd.Series]:
+
+        if alpha is not None and not alpha.index.equals(holdings.index):
+            raise ValueError("Index of holdings and alpha must match.")
+        if alpha is not None and not alpha.index[-1] == "cash":
+            raise ValueError("Last index entry of alpha must be cash.")
+        if not holdings.index[-1] == "cash":
+            raise ValueError("Last index entry of holdings must be cash.")
+
         nav = holdings.sum()
 
         z = cp.Variable(len(holdings))
@@ -69,6 +77,7 @@ def _(cp, pd):
         constraints = [w == holdings.values/nav + z,
                        w >= 0,
                        cp.sum(w) == 1.,
+                       cp.sum(cp.abs(w[:-1])) <= 1.0, 
                       252*cp.quad_form(w, risk_model["Sigma"].loc[holdings.index, holdings.index].to_numpy()) <= vol_ann**2]
 
         prob = cp.Problem(cp.Maximize(cp.sum(objectives)), 
@@ -89,13 +98,17 @@ def _(factor_returns):
 @app.cell
 def _(alphas, factor_returns, np, pd):
     portfolios = {}
-    portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": alphas[["Mkt-RF", "ST_Rev", "Mom", "cash"]],
+    portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": 
+                                                       pd.DataFrame(np.tile(np.array([1.0, 1.0, 1.0, 0.0]), (len(alphas.index), 1)),
+        index=alphas.index,
+        columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
+                                                                    #alphas[["Mkt-RF", "ST_Rev", "Mom", "cash"]],
                                                "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
                                                "aversion": None,
                                                "vol_tar": 0.05}
 
     for _factor in factor_returns.columns:
-        portfolios[(_factor, "cash")] = {"alpha": alphas[[_factor, "cash"]],
+        portfolios[(_factor, "cash")] = {"alpha": None, #alphas[[_factor, "cash"]],
                                                "holdings": pd.DataFrame(np.nan, index=alphas.index, columns=[_factor, "cash"]),
                                                "aversion": None,
                                                "vol_tar": 0.05}
@@ -115,6 +128,9 @@ def _(
     risk_models,
 ):
     def run_portfolio(_portfolio_name, _portfolio_pars, factor_returns, risk_models):
+        if not _portfolio_name[-1] == "cash":
+            raise ValueError("Cash must be last.")
+
         current_holdings = pd.Series(np.r_[np.zeros(len(_portfolio_pars["holdings"].columns)-1), 1.],
                                      index=_portfolio_pars["holdings"].columns)
 
@@ -139,7 +155,7 @@ def _(
                 current_trades, current_holdings = markowitz(
                     current_holdings,
                     risk_models[_next_date],
-                    _portfolio_pars["alpha"].loc[_next_date],
+                    _portfolio_pars["alpha"].loc[_next_date] if _portfolio_pars["alpha"] is not None else None,
                     _portfolio_pars["vol_tar"],
                     _portfolio_pars["aversion"]
                 )
