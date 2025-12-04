@@ -89,29 +89,56 @@ def _(cp, pd):
 
 
 @app.cell
-def _(factor_returns):
+def _(factor_returns, np, pd):
     alphas = 252*factor_returns.rolling(512).mean().dropna()
     alphas["cash"] = 0.
+
+    alphas_portfolio = alphas[["Mkt-RF", "ST_Rev", "Mom", "RMW", "cash"]]
+    alphas_portfolio = alphas_portfolio.apply(lambda x: (x - x.mean()) / x.std(), axis=1)
+    alphas_portfolio = alphas_portfolio.sub(alphas_portfolio["cash"], axis=0)
+
+    const_portfolio = pd.DataFrame(np.tile(np.array([1.0, 1.0, 1.0, 1.0, 0.0]), (len(factor_returns.index), 1)),
+        index=factor_returns.index,
+        columns=["Mkt-RF", "ST_Rev", "Mom", "RMW", "cash"]).apply(lambda x: (x - x.mean()) / x.std(), axis=1)
+    const_portfolio = const_portfolio.sub(const_portfolio["cash"], axis=0)
+
+    # alphas_combined = 0.0 * alphas_portfolio + 1.0*const_portfolio
+    # alphas_combined.loc[:, ["Mkt-RF", "ST_Rev", "Mom"]] = \
+    #     alphas_combined.loc[:, ["Mkt-RF", "ST_Rev", "Mom"]].fillna(1.0)
+
+    # alphas_combined.loc[:, ["cash"]] = \
+    #     alphas_combined.loc[:, ["cash"]].fillna(0.0)
+    alphas_combined = const_portfolio
+    return alphas, alphas_combined, alphas_portfolio
+
+
+@app.cell
+def _(alphas_combined):
+    alphas_combined.plot()
     return
 
 
 @app.cell
-def _(factor_returns, np, pd):
+def _(alphas_portfolio):
+    alphas_portfolio.plot()
+    return
+
+
+@app.cell
+def _(alphas_combined, factor_returns, np, pd):
     portfolios = {}
     portfolios[("Mkt-RF", "ST_Rev", "Mom", "cash")] = {"alpha": 
-                                                       pd.DataFrame(np.tile(np.array([1.0, 1.0, 1.0, 0.0]), (len(factor_returns.index), 1)),
-        index=factor_returns.index,
-        columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
+                                                       alphas_combined,
                                                                     #alphas[["Mkt-RF", "ST_Rev", "Mom", "cash"]],
-                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=["Mkt-RF", "ST_Rev", "Mom", "cash"]),
+                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=["Mkt-RF", "ST_Rev", "Mom", "RMW", "cash"]),
                                                "aversion": None,
                                                "vol_tar": 0.05}
 
-    for _factor in factor_returns.columns:
-        portfolios[(_factor, "cash")] = {"alpha": None, #alphas[[_factor, "cash"]],
-                                               "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=[_factor, "cash"]),
-                                               "aversion": None,
-                                               "vol_tar": 0.05}
+    # for _factor in factor_returns.columns:
+    #     portfolios[(_factor, "cash")] = {"alpha": None, #alphas[[_factor, "cash"]],
+    #                                            "holdings": pd.DataFrame(np.nan, index=factor_returns.index, columns=[_factor, "cash"]),
+    #                                            "aversion": None,
+    #                                            "vol_tar": 0.05}
     return (portfolios,)
 
 
@@ -243,6 +270,18 @@ def _(joint_results, plt, result):
     plt.title("Sharpe per year")
     plt.axhline(0.0, linestyle="--")
     plt.show()
+    return
+
+
+@app.cell
+def _(alphas):
+    (alphas[["Mom", "Mkt-RF", "ST_Rev"]]).plot()
+    return
+
+
+@app.cell
+def _(alphas):
+    alphas[["Mom", "Mkt-RF", "ST_Rev"]].mean()
     return
 
 

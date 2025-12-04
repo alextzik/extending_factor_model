@@ -28,6 +28,8 @@ joblib = "^1.5.2"
 openai = "^2.3.0"
 statsmodels = "^0.14.5"
 tqdm-joblib = "^0.0.5"
+refinitiv-data = "^1.6.2"
+lseg-data = "^2.1.1"
 [tool.poetry.extras]
 viz = ["marimo", "matplotlib", "seaborn"]
 

@@ -30,7 +30,7 @@ def _():
 
 @app.cell
 def _():
-    horizon = 1500
+    horizon = -1
     start = 300
     halflife = 63
     return halflife, horizon, start
@@ -43,22 +43,7 @@ def _(factor_returns):
 
 
 @app.cell
-def _(pd):
-    assets = pd.Index(['NEE', 'DPZ', 'WEC', 'INCY', 'MCK', 'HRL', 'FSLR', 'PFE', 'AKAM',
-           'CTRA', 'HAS', 'MKC', 'LUMN', 'BMY', 'CMG', 'HUM', 'NWL', 'NI', 'WMT',
-           'CMS', 'ETR', 'BDX', 'ABBV', 'MKTX', 'TSN', 'ED', 'DUK', 'PNW', 'HSY',
-           'MO', 'AWK', 'ENPH', 'STX', 'GILD', 'XRAY', 'PSA', 'TGT', 'XEL', 'SO',
-           'CLX', 'EIX', 'ATO', 'KMB', 'SJM', 'CAG', 'NRG', 'ORLY', 'KR', 'LNT',
-           'AAP', 'DGX', 'DG', 'K', 'DLR', 'REGN', 'CNC', 'LLY', 'EA', 'FE', 'CPB',
-           'CHTR', 'EVRG', 'ROL', 'VZ', 'NEM', 'DLTR', 'AEE', 'BF-B', 'BAX', 'LHX',
-           'VTRS', 'PODD', 'CAH', 'KDP', 'CHRW', 'DVA', 'PGR', 'CHD', 'AEP', 'LMT',
-           'TSCO', 'EXR', 'DHR', 'MRK', 'WBD'])
-    return (assets,)
-
-
-@app.cell
 def _(
-    assets,
     compute_risk_models_over_time_given_factor_returns,
     halflife,
     horizon,
@@ -68,7 +53,9 @@ def _(
     factor_returns = load_factor_data()
     factors = ["Mom", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "LT_Rev", "ST_Rev"]
     factor_returns = factor_returns[factors]
-    asset_returns  = pd.read_pickle("data/processed/assets/returns_df.pkl")
+    asset_returns  = pd.read_pickle("data/processed/assets/russell_returns.pkl")
+
+    assets = asset_returns.columns
 
     common_dates = factor_returns.index.intersection(asset_returns.index)
     factor_returns = factor_returns.reindex(common_dates)
@@ -76,19 +63,13 @@ def _(
 
     cov_dict = compute_risk_models_over_time_given_factor_returns(
         asset_returns=asset_returns.iloc[:horizon][assets], 
-        factor_returns=factor_returns.iloc[:horizon], # ["Mkt-RF", "SMB", "HML"]
+        factor_returns=factor_returns.iloc[:horizon],
         halflife=halflife,
         burnin=2*halflife)
 
     # with open("basic_risk_model.pkl", "rb") as _f:
     #     cov_dict = pickle.load(_f)
-    return asset_returns, cov_dict, factor_returns
-
-
-@app.cell
-def _(factor_returns):
-    factor_returns
-    return
+    return asset_returns, assets, cov_dict, factor_returns
 
 
 @app.cell
@@ -110,10 +91,10 @@ def _(
 
 @app.cell
 def _(cov_dict, cov_extended_dict, pickle):
-    with open("basic_risk_model.pkl", "wb") as _f:
+    with open("basic_risk_model_russell.pkl", "wb") as _f:
         pickle.dump(cov_dict, _f)
 
-    with open("extended_risk_model.pkl", "wb") as _f:
+    with open("extended_risk_model_russell.pkl", "wb") as _f:
         pickle.dump(cov_extended_dict, _f)    
     return
 
@@ -209,17 +190,29 @@ def _(log_likes, np):
 
 
 @app.cell
-def _(cov_extended_dict, date, np, pd):
+def _(cov_extended_dict, np, pd):
     _dates = list(cov_extended_dict.keys())
     norms = pd.DataFrame(np.nan, index=_dates, columns=["orig", "added"])
     for _d in _dates:
-        F_orig = cov_extended_dict[date]["F_Omega_sqrt"].iloc[:, :8]
-        F_new = cov_extended_dict[date]["F_Omega_sqrt"].iloc[:, 8:]
+        F_orig = cov_extended_dict[_d]["F_Omega_sqrt"].iloc[:, :1]
+        F_new = cov_extended_dict[_d]["F_Omega_sqrt"].iloc[:, 1:]
 
         norms.loc[_d, "orig"] = np.linalg.norm(F_orig)
         norms.loc[_d, "added"] = np.linalg.norm(F_new)
 
     norms.plot()
+    return (norms,)
+
+
+@app.cell
+def _(norms):
+    norms
+    return
+
+
+@app.cell
+def _(asset_returns, assets):
+    asset_returns[assets[0:3]].cumsum().plot()
     return
 
 
